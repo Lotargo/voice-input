@@ -1,7 +1,9 @@
 //! Minimal late-bound Vosk C API. A normal Rust build needs no Kaldi/Vosk linker setup;
 //! `libvosk.dll` is required only when transcription actually starts.
 use std::{ffi::{c_char, c_int, c_void, CStr, CString}, path::Path};
-use libloading::{Library, Symbol};
+use libloading::os::windows::{
+    Library, Symbol, LOAD_LIBRARY_SEARCH_DEFAULT_DIRS, LOAD_LIBRARY_SEARCH_DLL_LOAD_DIR,
+};
 use serde::Deserialize;
 
 type ModelNew = unsafe extern "C" fn(*const c_char) -> *mut c_void;
@@ -34,7 +36,14 @@ impl Vosk {
         // SAFETY: Function signatures match the published Vosk C API (v0.3.45).
         // The Library remains owned by Self until after both native objects are freed.
         unsafe {
-            let lib = Library::new(dll).map_err(|e| format!("Загрузка libvosk.dll: {e}"))?;
+            // The shipped Vosk DLL has additional MinGW DLL dependencies next to it.
+            // A normal LoadLibraryEx(0) does NOT look in the DLL's own directory.
+            // Explicitly include that directory without modifying global PATH.
+            let lib = Library::load_with_flags(
+                dll,
+                LOAD_LIBRARY_SEARCH_DLL_LOAD_DIR | LOAD_LIBRARY_SEARCH_DEFAULT_DIRS,
+            )
+            .map_err(|e| format!("Загрузка libvosk.dll: {e}"))?;
             let get = |symbol: &[u8]| -> Result<*const (), String> {
                 let f: Symbol<*const ()> = lib.get(symbol).map_err(|e| e.to_string())?;
                 Ok(*f)
