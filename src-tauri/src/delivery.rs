@@ -15,7 +15,7 @@ use windows::Win32::{
     UI::{
         Input::KeyboardAndMouse::{INPUT, INPUT_0, INPUT_KEYBOARD, KEYBDINPUT, KEYEVENTF_KEYUP,
                                      KEYEVENTF_UNICODE, SendInput, VIRTUAL_KEY},
-        WindowsAndMessaging::GetCursorPos,
+        WindowsAndMessaging::{GetCursorPos, GetForegroundWindow, GetWindowThreadProcessId},
     },
 };
 
@@ -197,7 +197,18 @@ impl Delivery {
     }
 }
 
+fn our_window_is_foreground() -> bool {
+    let hwnd = unsafe { GetForegroundWindow() };
+    if hwnd.0.is_null() { return false; }
+    let mut pid: u32 = 0;
+    unsafe { GetWindowThreadProcessId(hwnd, Some(&mut pid)) };
+    pid == std::process::id()
+}
+
 fn editable(element: &UIElement) -> bool {
+    // WebView2 renderers run in a different process; excluding the root Tauri
+    // process ID alone would accidentally allow injection into our own settings.
+    if our_window_is_foreground() { return false; }
     if element.get_process_id().unwrap_or(-1) == std::process::id() as i32 { return false; }
     matches!(element.get_control_type(), Ok(ControlType::Edit | ControlType::Document))
         && element.is_enabled().unwrap_or(false)

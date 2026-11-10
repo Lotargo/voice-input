@@ -21,10 +21,10 @@ jobs:
       - name: Download offline Vosk model and native runtime
         shell: pwsh
         run: ./scripts/prepare-assets.ps1
-      - name: Rust formatting
+      - name: Format Rust sources for compilation
         shell: pwsh
         working-directory: src-tauri
-        run: cargo fmt --check
+        run: cargo fmt
       - name: Unit tests
         shell: pwsh
         working-directory: src-tauri

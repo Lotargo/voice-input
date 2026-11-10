@@ -94,7 +94,13 @@ $('record').addEventListener('click', async () => {
 $('refresh-models').addEventListener('click', () => loadModels().catch(e => status(String(e), false, true)));
 model.addEventListener('change', () => selectModel(model.value).catch(e => status(String(e), false, true)));
 $('apply-path').addEventListener('click', async () => {
-  try { await selectModel($('custom-path').value.trim()); await loadModels(); status('Локальная модель выбрана'); }
+  try {
+    const path = $('custom-path').value.trim();
+    await selectModel(path);
+    if (![...model.options].some(o => o.value === path)) model.add(new Option('Пользовательская модель', path));
+    model.value = path;
+    status('Локальная модель выбрана');
+  }
   catch (e) { status(String(e), recording, true); }
 });
 $('auto-stop').addEventListener('change', async (ev) => {
