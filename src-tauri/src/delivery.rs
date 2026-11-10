@@ -209,7 +209,7 @@ fn editable(element: &UIElement) -> bool {
     // WebView2 renderers run in a different process; excluding the root Tauri
     // process ID alone would accidentally allow injection into our own settings.
     if our_window_is_foreground() { return false; }
-    if element.get_process_id().unwrap_or(-1) == std::process::id() as i32 { return false; }
+    if element.get_process_id().ok() == Some(std::process::id()) { return false; }
     matches!(element.get_control_type(), Ok(ControlType::Edit | ControlType::Document))
         && element.is_enabled().unwrap_or(false)
         && !element.is_password().unwrap_or(true)
