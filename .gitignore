@@ -1,0 +1,13 @@
+# Build output
+/target/
+/src-tauri/target/
+/node_modules/
+/dist/
+# Native runtime and local model weights are downloaded separately
+/src-tauri/resources/*.dll
+/src-tauri/resources/models/*
+!/src-tauri/resources/models/.gitkeep
+*.zip
+*.log
+*.local
+.DS_Store

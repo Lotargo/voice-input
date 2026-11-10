@@ -1,0 +1,7 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "default",
+  "description": "Only local app commands and event listening; no network APIs exposed to the webview.",
+  "windows": ["main"],
+  "permissions": ["core:default", "core:event:default"]
+}

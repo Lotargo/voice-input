@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="color-scheme" content="dark" />
+  <title>Voice Input</title>
+  <link href="./style.css" rel="stylesheet" />
+  <script src="./app.js" defer></script>
+</head>
+<body>
+  <main class="app">
+    <header class="topbar">
+      <div class="brand"><div class="brand-icon" aria-hidden="true"><span></span><span></span><span></span><span></span><span></span></div>
+        <div><div class="brand-name">VOICE INPUT</div><div class="muted tiny">Локальная диктовка • Windows</div></div>
+      </div>
+      <span class="build">MVP 0.1</span>
+    </header>
+
+    <section class="recorder panel">
+      <div class="statusline"><span id="status-dot" class="dot"></span><span id="status-label">Ожидание</span><span class="shortcut">Ctrl + Alt + Space</span></div>
+      <button id="record" class="record-button" type="button"><span class="mic-icon">●</span><span id="record-label">Начать диктовку</span></button>
+      <p class="hint">Поставьте курсор в поле браузера, OpenCode или редактора и начните говорить. Отправка сообщения остаётся за вами.</p>
+      <div class="transcript">
+        <div class="section-label">ТРАНСКРИПЦИЯ</div>
+        <div id="transcribed" class="transcribed" aria-live="polite">Здесь появится распознанный текст…</div>
+        <div id="partial" class="partial" aria-live="polite"></div>
+      </div>
+    </section>
+
+    <section class="panel settings">
+      <div class="section-title"><h2>Локальная модель</h2><button id="refresh-models" class="text-button">Обновить</button></div>
+      <label for="model">Движок Vosk • CPU • русский язык</label>
+      <select id="model"><option value="">Поиск установленных моделей…</option></select>
+      <label for="custom-path" class="subtle-label">Или путь к папке Vosk</label>
+      <div class="path-entry"><input id="custom-path" placeholder="C:\\Models\\vosk-model-small-ru-0.22" spellcheck="false" /><button id="apply-path" class="secondary-button">Выбрать</button></div>
+      <div class="toggle-row"><div><strong>Автозавершение</strong><small>По окончанию фразы, определяемому Vosk (экспериментально)</small></div><label class="switch"><input id="auto-stop" type="checkbox"/><span></span></label></div>
+      <div class="toggle-row"><div><strong>Вставка при наведении</strong><small>Если поле не выбрано, наведение 0,7 с активирует ввод</small></div><label class="switch"><input id="hover-insert" type="checkbox" checked/><span></span></label></div>
+    </section>
+
+    <section class="panel queue">
+      <div class="section-title"><h2>Ожидающий текст <span id="queue-size" class="counter">0</span></h2></div>
+      <p id="queue-note" class="queue-note">Пусто. Если поле ввода недоступно, текст появится здесь.</p>
+      <div id="queue-items" class="queue-items"></div>
+      <div id="uncertain-items" class="queue-items"></div>
+      <div id="delivery-message" class="footnote"></div>
+    </section>
+    <footer>Никаких API, VPN и автосообщений. Аудио обрабатывается локально.</footer>
+  </main>
+</body>
+</html>
