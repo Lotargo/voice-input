@@ -1,28 +1,30 @@
 # Voice Input — agent instructions
 
-## Goals
-- Windows 10/11 portable + NSIS installer. Tauri 2 shell, Rust backend, static HTML/CSS/JS frontend.
-- Offline, CPU-only speech recognition. No API providers, VPN, database, or background telemetry.
-- Dictation goes into the user's focused editable control, never submits or presses Enter automatically.
-- Partial hypotheses are presentation-only. Only Vosk FINAL chunks may be sent to a foreign editor.
-- If no edit control is focused, hold data in process memory; optionally send once after 700 ms hover over a valid UI Automation edit field.
-- At-most-once attempts keyed by `(session_id, segment_id)`: dequeue BEFORE calling SendInput, never automatically retry uncertain sends. Never touch system clipboard unless the user explicitly clicks Copy.
+## Scope
+- Windows 10/11, Tauri 2 + Rust, static HTML/CSS/JS frontend; native portable + NSIS packages.
+- Local CPU-based Russian STT (Vosk) only. No API, VPN, LLM, external service, database, or telemetry for v0.1.
+- Dictation is user-controlled. NEVER automatically press Enter, send a message, or mutate an Excel workbook.
+- Partial STT hypotheses are **preview only**. Deliver final segments to the user's focused editable field.
+- If no field is eligible, keep final text in an in-memory pending queue. Optional 700 ms hover to focus and deliver.
+- At-most-once attempts keyed by session/segment. Dequeue BEFORE attempting SendInput; uncertain attempts must NEVER auto-retry. Preserve system clipboard except when user explicitly clicks Copy.
 
-## Boundaries
-- `src-tauri/src/audio.rs`: `cpal` microphone capture, 16k mono conversion, STT feed, manual stop and experimental endpoint auto-stop.
-- `src-tauri/src/vosk.rs`: native Vosk dynamic loading and object lifetime.
-- `src-tauri/src/delivery.rs`: UI Automation checks, delivery queue, and Unicode SendInput.
-- `src-tauri/src/models.rs`: local model and DLL discovery.
-- `src-tauri/src/lib.rs`: Tauri commands, lifecycle, hotkey, tray.
-- `ui/`: static frontend; no hosted scripts or remote fonts.
+## Architecture boundaries
+- `src-tauri/src/audio.rs`: CPAL audio capture, resampling, STT feed, manual stop, experimental endpoint auto-stop.
+- `src-tauri/src/vosk.rs`: native Vosk late binding, DLL loading and object lifetime.
+- `src-tauri/src/delivery.rs`: UI Automation validation, queue, Unicode SendInput, delivery status.
+- `src-tauri/src/models.rs`: local model / DLL discovery.
+- `src-tauri/src/lib.rs`: app state, commands, hotkey, tray lifecycle.
+- `ui/`: local assets; no hosted scripts, fonts, CDNs or API calls.
+- `scripts/prepare-assets.ps1`: downloads build-time native runtime and local model.
+- `scripts/build-windows.ps1`: manual installer + portable packaging.
 
-## Never do
-- Do not automatically submit text, click arbitrary screen coordinates, or send keys to password fields.
-- Do not apply LLM actions or edit Excel documents directly; this phase is dictation only.
-- Do not claim exactly-once insertion into external applications; Windows SendInput only acknowledges event injection, not editor acceptance.
-- Do not download weights or runtime libraries during transcription.
+## Development workflow
+- Work directly in `main` when requested by the repository owner; do not require a PR or branch.
+- CI workflows have deliberately been removed. Do not add GitHub Actions unless explicitly requested.
+- Keep README aligned with code. Do not document planned features as implemented.
+- Check locally on Windows: `cargo fmt`, `cargo test`, `cargo tauri build --bundles nsis`; package with `scripts/build-windows.ps1`.
+- Manually smoke test: Notepad, Chrome/Edge edit controls, OpenCode, VS Code, Excel formula field; rapid focus switching; identical final chunks; no target; hover target; password control; clipboard preservation; hotkey while window hidden.
+- Known limits: UIA is imperfect in custom editors; Windows injection lacks acceptance ACK; elevated apps can block input.
 
-## Tests
-- Windows CI: `cargo fmt --check`, `cargo test`, `cargo tauri build --bundles nsis`.
-- Manual smoke tests: Notepad, Chrome/Edge textarea, OpenCode, VS Code, Excel formula edit field; fast focus changes and two identical final chunks; no field selected; hover; password field; clipboard preservation; hotkey while window hidden.
-- Hardening later: dedicated VAD / noise suppression, wake word, refined resampler, configurable shortcut, auto-start.
+## Roadmap (not yet implemented)
+Dedicated VAD, noise suppression, wake word, adjustable hotkey, better resampler, auto-start; API/LLM only if requested later.

@@ -1,52 +1,147 @@
 # Voice Input
 
-Offline Russian speech-to-text for **Windows 10/11**. Lightweight Tauri 2 + Rust application; no server, no VPN, no API keys, and no dedicated GPU. Initial implementation uses **Vosk Small RU** (~45 MB downloadable model) and Windows UI Automation for input placement.
+**Локальный голосовой ввод на русском языке для Windows 10/11.** Диктуйте текст в браузере, редакторе или чате, исправляйте распознавание при необходимости и отправляйте сообщения самостоятельно.
 
-## MVP capabilities
+Voice Input работает на **Tauri 2 + Rust** и использует **Vosk** для распознавания речи на CPU. Для диктовки не нужны VPN, API-ключи, облачный сервер или видеокарта.
 
-- `Ctrl + Alt + Space` starts/stops a microphone recording; the window may be hidden in the tray.
-- `Vosk` produces streaming **partial** text in the application UI. Stable **final** segments are delivered to the focused editable field, without pressing Enter or sending a message.
-- If no editable field is focused, text stays in an **in-memory pending queue**. Hover over an editable control for ~700 ms to focus and insert pending text; disable this in the UI if not desired.
-- No clipboard changes for automatic insertion: Unicode `SendInput` is used. Use **Copy** on a pending item for manual `Ctrl+V`.
-- Deduplication by `(session_id, segment_id)`. Every segment has **at most one automatic SendInput attempt**. An ambiguous partial failure is saved as uncertain, never auto-retried.
-- Experimental automatic stop on the Vosk utterance endpoint (off by default); manual stop remains supported.
-- Select between installed local Vosk-compatible models by path. No network activity at runtime.
+> **Статус:** `v0.1.0`, ранний MVP. Исходный код доступен в `main`; готовые сборки и совместимость с конкретными редакторами требуют проверки на Windows. Это пока не универсальный инструмент автоматизации Excel.
 
-## Local preparation (PowerShell)
+## Возможности
 
-Requirements: Windows 10/11 x64, Rust stable (1.90+), Microsoft C++ Build Tools, Tauri 2 prerequisites (WebView2). No Node.js is needed; frontend uses static HTML/CSS/JS.
+- **Оффлайн-распознавание:** Vosk Small RU и другие совместимые локальные модели Vosk.
+- **Потоковая транскрипция:** промежуточные гипотезы видны в интерфейсе, в сторонние программы передаются только финальные фрагменты.
+- **Быстрый запуск:** `Ctrl + Alt + Space` или кнопка записи. Приложение может работать из системного трея.
+- **Ввод в активное поле:** Windows UI Automation проверяет, доступен ли редактируемый элемент; вставка выполняется через Unicode `SendInput`, **без замены буфера обмена**.
+- **Отложенная вставка:** если подходящее поле не выбрано, распознанный текст остаётся в оперативной памяти. При включённой опции наведение на поле примерно на 700 мс запускает однократную попытку ввода.
+- **Защита от повторов:** учёт `session_id` / `segment_id`; после неоднозначного результата ввод автоматически не повторяется.
+- **Ручное управление:** копирование ожидающего текста, выбор папки модели, экспериментальная остановка после завершения фразы.
+
+**Приложение никогда не нажимает Enter и не отправляет сообщения самостоятельно.**
+
+## Требования
+
+| Компонент | Требование |
+| --- | --- |
+| ОС | Windows 10/11, x64 |
+| Распознавание | CPU; отдельная GPU не нужна |
+| Микрофон | Любой работающий вход с разрешением доступа в Windows |
+| Интерфейс | Microsoft Edge WebView2 Runtime |
+| Сборка из исходников | Rust stable (MSVC, минимум 1.90), Visual Studio C++ Build Tools, PowerShell |
+| Сеть | Требуется для первоначальной загрузки зависимостей, модели и DLL; **для самой диктовки не нужна** |
+
+Frontend — статические HTML, CSS и JavaScript. Node.js, npm и отдельная база данных не требуются.
+
+## Быстрый старт из исходников
+
+Откройте **PowerShell** на Windows:
 
 ```powershell
-# In the repository root
+git clone https://github.com/Lotargo/voice-input.git
+cd voice-input
+
+# Загрузить Vosk для Windows и небольшую русскую модель
 .\scripts\prepare-assets.ps1
-cd src-tauri
+
+# Установить CLI Tauri, если он ещё не установлен
 cargo install tauri-cli --version '^2' --locked
+
+cd src-tauri
 cargo tauri dev
 ```
 
-`prepare-assets.ps1` downloads the official **Vosk v0.3.45** Windows DLLs and the **Apache-2.0** `vosk-model-small-ru-0.22` language model into `src-tauri/resources/`. Files are downloaded once, never while dictating. They are excluded from Git.
+Скрипт `prepare-assets.ps1` получает нативную библиотеку **Vosk 0.3.45** и модель **vosk-model-small-ru-0.22** из официальных источников. Загрузка выполняется при подготовке, а не во время распознавания. Ресурсы хранятся локально в `src-tauri/resources/` и не коммитятся в Git.
 
-The default model directory is `src-tauri/resources/models/vosk-model-small-ru-0.22`. Another local compatible model may be selected from the UI. Extracted model root must contain `am/` and `conf/` directories.
+### Как пользоваться
 
-## Windows artifacts
+1. Установите курсор в редактируемое поле (например, в чате или текстовом редакторе).
+2. Нажмите **Ctrl + Alt + Space** или **«Начать диктовку»**.
+3. Говорите. Промежуточный текст появится в окне Voice Input, подтверждённые фрагменты будут передаваться в поле ввода.
+4. Повторно нажмите горячую клавишу для остановки. Проверьте текст и при необходимости исправьте его перед отправкой.
 
-`.github/workflows/windows.yml` prepares the native assets and builds:
+Если активного поля нет, текст попадёт в **ожидающую очередь**. Можно навести курсор на подходящее поле (если включена опция), либо нажать **«Копировать»** и вставить вручную.
 
-1. `voice-input-windows-installer` — unsigned NSIS setup executable, bundling the local model and runtime.
-2. `voice-input-windows-portable` — ZIP containing the unbundled executable and the same native runtime/model. Extract before use; WebView2 must be available.
+> **Важно:** наведение автоматически переводит фокус на подходящее поле и может быть нежелательно во время другой работы. Опцию можно отключить в интерфейсе.
 
-The first workflow run is the build verification step; binaries are **not** claimed to be tested on real Windows applications until smoke testing.
+### Смена модели
 
-## Design and safety
+В настройках можно выбрать найденную локальную модель либо указать полный путь к каталогу другой модели Vosk. В каталоге должны находиться подпапки `am/` и `conf/`. Смена во время активной записи недоступна.
 
-- Active field is checked using Microsoft UI Automation. Only enabled, keyboard-focusable `Edit` and `Document` controls in **other** processes are eligible; password and offscreen controls are excluded.
-- Hover mode uses `ElementFromPoint` and `SetFocus` after a 700 ms dwell, then confirms that the same UIA element has focus. Some custom Electron/CAD controls won't expose standard UIA controls; for those use manual Copy/Paste.
-- `SendInput` does **not** confirm that an external editor actually inserted characters; the app therefore guarantees **at-most-once attempted delivery**, not exactly-once acceptance.
-- Recording stops when the user requests it; with auto-stop enabled, Vosk's end-of-utterance result can end the recording. This is not noise-independent VAD. Real noise suppression, Silero VAD, and a wake-word engine are separate future stages.
-- Some elevated processes block injection by lower-integrity processes. This is a Windows limitation, not a retry condition.
-- The app never reads, modifies or submits Excel workbooks itself; it provides text to a user-selected input field. LLM/API and spreadsheet agent workflows are intentionally excluded.
+## Локальная сборка для Windows
 
-## Third-party software
+CI отсутствует: сборка выполняется **на своём Windows-компьютере**.
 
-- Vosk API binaries from [alphacep/vosk-api](https://github.com/alphacep/vosk-api/releases/tag/v0.3.45); Vosk model from [alphacephei.com](https://alphacephei.com/vosk/models). Keep their license notices with redistribution.
-- Tauri 2, CPAL, libloading, UI Automation bindings; follow licenses of respective Rust crates and Windows WebView2 runtime.
+После установки Tauri CLI запустите из корня репозитория:
+
+```powershell
+.\scripts\build-windows.ps1
+```
+
+Скрипт подготовит ресурсы, соберёт **NSIS-установщик** и создаст **portable ZIP**. Итоговые файлы будут находиться в `dist/`:
+
+- `Voice-Input-Setup-*.exe` — установщик (имя может отличаться в зависимости от Tauri).
+- `voice-input-windows-portable.zip` — исполняемый файл, DLL и модель в одном архиве.
+
+Для сборки только средствами Tauri:
+
+```powershell
+cd src-tauri
+cargo tauri build --bundles nsis
+```
+
+Установщик формируется в `src-tauri/target/release/bundle/nsis/`. Portable-версию нужно распаковать **целиком**, не перемещая `voice-input.exe` отдельно от DLL и `models/`. Для portable-версии WebView2 должен быть установлен в системе. Полученные файлы не подписаны сертификатом.
+
+## Архитектура
+
+```text
+Microphone (CPAL)
+  └─ PCM → 16 kHz mono
+      └─ Vosk (локальная модель)
+          ├─ partial → окно приложения
+          └─ final → Delivery Queue (RAM, deduplication)
+                        ├─ активное поле → UI Automation → SendInput
+                        └─ нет поля → ожидание / ручное копирование
+```
+
+| Путь | Назначение |
+| --- | --- |
+| `src-tauri/src/audio.rs` | Захват микрофона, ресемплинг и потоковая сессия |
+| `src-tauri/src/vosk.rs` | Загрузка `libvosk.dll` и вызовы нативного Vosk |
+| `src-tauri/src/delivery.rs` | UI Automation, очередь, дедупликация, ввод текста |
+| `src-tauri/src/models.rs` | Обнаружение локальных моделей и DLL |
+| `src-tauri/src/lib.rs` | Tauri-команды, трей, горячая клавиша, состояние |
+| `ui/` | Локальный интерфейс без frontend-сборщика |
+| `scripts/` | Подготовка зависимостей и ручная Windows-сборка |
+| `AGENTS.md` | Правила для разработчиков и кодовых агентов |
+
+Настройки интерфейса сохраняются через WebView localStorage; **транскрипции и очередь в базу данных не записываются**. После закрытия приложения ожидающий текст теряется.
+
+## Ограничения
+
+- Ввод реализован как **best-effort**. `SendInput` подтверждает передачу событий Windows, но не факт появления текста в стороннем приложении. Гарантируется максимум **одна автоматическая попытка** на фрагмент, а не exactly-once запись в редактор.
+- UI Automation работает не со всеми кастомными полями (включая отдельные редакторы Electron/IDE). В таких случаях используйте ручное копирование.
+- Приложения, запущенные с повышенными правами, могут отклонять ввод из обычного процесса.
+- Автоостановка по границе фразы Vosk **экспериментальна**: это пока не отдельный VAD, не надёжный отсекатель шума.
+- В версии 0.1 отсутствуют **wake word**, шумоподавление, LLM/API-провайдеры и непосредственное изменение файлов Excel. Это диктовка текста в поле ввода, а не агент, управляющий документами.
+
+## Проверка и участие
+
+На Windows в каталоге `src-tauri/`:
+
+```powershell
+cargo fmt
+cargo test
+```
+
+Перед использованием в работе проверьте Notepad, поля ввода Chrome/Edge, OpenCode, VS Code и Excel (в частности, строку формул), смену фокуса, парольные поля, отложенную вставку и отсутствие повторов. Историю изменений и предложения по доработкам можно вести через [Issues](https://github.com/Lotargo/voice-input/issues).
+
+При работе с кодом учитывайте [AGENTS.md](./AGENTS.md).
+
+## Дальнейшие этапы
+
+Планируются независимые модули шумоподавления, VAD, голосовой активации по ключевому слову, настройка сочетания клавиш и дополнительные локальные STT-движки. Поддержка удалённых API и LLM в этот MVP **не включена**.
+
+## Сторонние компоненты и лицензия
+
+Vosk и модель распространяются сторонними правообладателями: [Vosk API](https://github.com/alphacep/vosk-api) и [модели Vosk](https://alphacephei.com/vosk/models). При распространении собранного приложения учитывайте лицензии библиотек, модели и WebView2.
+
+**Лицензия исходного кода Voice Input пока не объявлена** (файла `LICENSE` нет). Публикация репозитория сама по себе не предоставляет разрешение на его повторное использование или распространение.
