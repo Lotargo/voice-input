@@ -31,7 +31,11 @@
     "icon": ["icons/icon.png", "icons/icon.ico"],
     "resources": ["resources/*.dll", "resources/models/**/*"],
     "windows": {
-      "nsis": { "displayLanguageSelector": false }
+      "nsis": {
+        "displayLanguageSelector": false,
+        "installerIcon": "icons/icon.ico",
+        "uninstallerIcon": "icons/icon.ico"
+      }
     }
   }
 }
