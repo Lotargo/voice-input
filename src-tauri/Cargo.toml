@@ -41,7 +41,7 @@ windows = { version = "0.62", features = [
 ] }
 
 [profile.release]
-codegen-units = 1
-lto = true
+codegen-units = 16
+lto = "thin"
 strip = true
 panic = "abort"

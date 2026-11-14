@@ -27,8 +27,11 @@ if (-not (Test-Path -LiteralPath (Join-Path $resources 'models/vosk-model-small-
 
 $oldKey = $env:TAURI_SIGNING_PRIVATE_KEY
 $oldPassword = $env:TAURI_SIGNING_PRIVATE_KEY_PASSWORD
+$oldBuildJobs = $env:CARGO_BUILD_JOBS
 Enable-VoiceInputSigning
 try {
+    # Bound concurrent compiler memory while keeping the optimized release profile.
+    if (-not $env:CARGO_BUILD_JOBS) { $env:CARGO_BUILD_JOBS = '1' }
     Push-Location $tauri
     try {
         & cargo tauri build --bundles nsis
@@ -92,4 +95,5 @@ try {
 } finally {
     $env:TAURI_SIGNING_PRIVATE_KEY = $oldKey
     $env:TAURI_SIGNING_PRIVATE_KEY_PASSWORD = $oldPassword
+    $env:CARGO_BUILD_JOBS = $oldBuildJobs
 }
