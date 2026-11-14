@@ -3,5 +3,9 @@
   "identifier": "default",
   "description": "Only local app commands and event listening; no network APIs exposed to the webview.",
   "windows": ["main"],
-  "permissions": ["core:default", "core:event:default"]
+  "permissions": [
+    "core:default", "core:event:default",
+    "core:window:allow-minimize", "core:window:allow-toggle-maximize",
+    "core:window:allow-close", "core:window:allow-start-dragging"
+  ]
 }

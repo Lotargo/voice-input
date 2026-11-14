@@ -12,13 +12,15 @@
       {
         "label": "main",
         "title": "Voice Input",
-        "width": 540,
-        "height": 650,
-        "minWidth": 460,
-        "minHeight": 560,
+        "width": 480,
+        "height": 480,
+        "minWidth": 480,
+        "minHeight": 480,
+        "decorations": false,
+        "shadow": true,
         "resizable": true,
         "center": true,
-        "backgroundColor": "#11151d"
+        "backgroundColor": "#121026"
       }
     ],
     "security": {

@@ -6,46 +6,121 @@
   <meta name="color-scheme" content="dark" />
   <title>Voice Input</title>
   <link href="./style.css" rel="stylesheet" />
+  <script src="./wave.js" defer></script>
+  <script src="./records.js" defer></script>
   <script src="./app.js" defer></script>
 </head>
 <body>
-  <main class="app">
-    <header class="topbar">
-      <div class="brand"><div class="brand-icon" aria-hidden="true"><span></span><span></span><span></span><span></span><span></span></div>
-        <div><div class="brand-name">VOICE INPUT</div><div class="muted tiny">Локальная диктовка • Windows</div></div>
+  <svg class="svg-definitions" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+    <defs>
+      <symbol id="icon-mic" viewBox="0 0 24 24"><rect x="9" y="2" width="6" height="13" rx="3"/><path d="M5 10v2a7 7 0 0 0 14 0v-2M12 19v3m-3 0h6"/></symbol>
+      <symbol id="icon-wave" viewBox="0 0 24 24"><path d="M3 10v4m4-8v12m5-16v20m5-16v12m4-8v4"/></symbol>
+      <symbol id="icon-copy" viewBox="0 0 24 24"><rect x="8" y="8" width="12" height="12" rx="2"/><path d="M16 8V4a1 1 0 0 0-1-1H4a1 1 0 0 0-1 1v11a1 1 0 0 0 1 1h4"/></symbol>
+      <symbol id="icon-close" viewBox="0 0 24 24"><path d="m6 6 12 12M6 18 18 6"/></symbol>
+      <symbol id="icon-minimize" viewBox="0 0 24 24"><path d="M5 12h14"/></symbol>
+      <symbol id="icon-maximize" viewBox="0 0 24 24"><rect x="5" y="5" width="14" height="14" rx="1"/></symbol>
+      <symbol id="icon-refresh" viewBox="0 0 24 24"><path d="M20 7v5h-5M4 17v-5h5M6 6a8 8 0 0 1 14 6M4 12a8 8 0 0 0 14 6"/></symbol>
+      <symbol id="icon-new" viewBox="0 0 24 24"><path d="M14 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-9M17 2v8m-4-4h8M7 11h5m-5 4h8"/></symbol>
+      <symbol id="icon-chevron" viewBox="0 0 24 24"><path d="m7 10 5 5 5-5"/></symbol>
+      <symbol id="icon-folder" viewBox="0 0 24 24"><path d="M3 7a2 2 0 0 1 2-2h5l2 2h7a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2Z"/></symbol>
+      <symbol id="icon-queue" viewBox="0 0 24 24"><rect x="5" y="4" width="14" height="17" rx="2"/><path d="M9 4V2h6v2M9 10h6m-6 4h6"/></symbol>
+    </defs>
+  </svg>
+
+  <div class="app">
+    <header class="titlebar" data-tauri-drag-region>
+      <div class="brand"><img class="brand-icon" src="app-icon.png" width="24" height="24" alt=""/><span>Voice Input</span></div>
+      <div class="window-controls" role="group" aria-label="Управление окном">
+        <button id="window-minimize" class="caption-button" type="button" aria-label="Свернуть окно" title="Свернуть окно"><svg class="icon" aria-hidden="true"><use href="#icon-minimize"/></svg></button>
+        <button id="window-maximize" class="caption-button" type="button" aria-label="Развернуть или восстановить окно" title="Развернуть / восстановить"><svg class="icon" aria-hidden="true"><use href="#icon-maximize"/></svg></button>
+        <button id="window-close" class="caption-button caption-close" type="button" aria-label="Скрыть в трей" title="Скрыть в трей"><svg class="icon" aria-hidden="true"><use href="#icon-close"/></svg></button>
       </div>
-      <span class="build">MVP 0.1</span>
     </header>
 
-    <section class="recorder panel">
-      <div class="statusline"><span id="status-dot" class="dot"></span><span id="status-label">Ожидание</span><span class="shortcut">Ctrl + Alt + Space</span></div>
-      <button id="record" class="record-button" type="button"><span class="mic-icon">●</span><span id="record-label">Начать диктовку</span></button>
-      <p class="hint">Поставьте курсор в поле браузера, OpenCode или редактора и начните говорить. Отправка сообщения остаётся за вами.</p>
-      <div class="transcript">
-        <div class="section-label">ТРАНСКРИПЦИЯ</div>
-        <div id="transcribed" class="transcribed" aria-live="polite">Здесь появится распознанный текст…</div>
-        <div id="partial" class="partial" aria-live="polite"></div>
-      </div>
-    </section>
+    <nav class="tabs" role="tablist" aria-label="Разделы приложения">
+      <button id="tab-dictation" type="button" role="tab" aria-selected="true" aria-controls="panel-dictation" tabindex="0">Диктовка</button>
+      <button id="tab-model" type="button" role="tab" aria-selected="false" aria-controls="panel-model" tabindex="-1">Модель</button>
+      <button id="tab-settings" type="button" role="tab" aria-selected="false" aria-controls="panel-settings" tabindex="-1">Параметры</button>
+      <button id="tab-queue" type="button" role="tab" aria-selected="false" aria-controls="panel-queue" tabindex="-1">Очередь <span id="queue-badge" class="nav-badge" hidden>0</span></button>
+    </nav>
 
-    <section class="panel settings">
-      <div class="section-title"><h2>Локальная модель</h2><button id="refresh-models" class="text-button">Обновить</button></div>
-      <label for="model">Движок Vosk • CPU • русский язык</label>
-      <select id="model"><option value="">Поиск установленных моделей…</option></select>
-      <label for="custom-path" class="subtle-label">Или путь к папке Vosk</label>
-      <div class="path-entry"><input id="custom-path" placeholder="C:\\Models\\vosk-model-small-ru-0.22" spellcheck="false" /><button id="apply-path" class="secondary-button">Выбрать</button></div>
-      <div class="toggle-row"><div><strong>Автозавершение</strong><small>По окончанию фразы, определяемому Vosk (экспериментально)</small></div><label class="switch"><input id="auto-stop" type="checkbox"/><span></span></label></div>
-      <div class="toggle-row"><div><strong>Вставка при наведении</strong><small>Если поле не выбрано, наведение 0,7 с активирует ввод</small></div><label class="switch"><input id="hover-insert" type="checkbox" checked/><span></span></label></div>
-    </section>
+    <main class="workspace">
+      <section id="panel-dictation" class="tab-panel dictation-panel" role="tabpanel" aria-labelledby="tab-dictation">
+        <div class="voice-stage">
+          <svg id="voice-waves" class="voice-waves" viewBox="0 0 560 160" preserveAspectRatio="none" aria-hidden="true">
+            <defs>
+              <linearGradient id="wave-stroke"><stop stop-color="#8e70e9" stop-opacity="0"/><stop offset=".3" stop-color="#a98bff" stop-opacity=".8"/><stop offset=".5" stop-color="#d6b8ff"/><stop offset=".7" stop-color="#a98bff" stop-opacity=".8"/><stop offset="1" stop-color="#8e70e9" stop-opacity="0"/></linearGradient>
+              <linearGradient id="wave-fill" x2="0" y2="1"><stop stop-color="#af8aff" stop-opacity=".24"/><stop offset="1" stop-color="#8f69ed" stop-opacity="0"/></linearGradient>
+            </defs>
+            <path id="wave-ribbon" class="wave-ribbon" d="M0 85C47 90 65 6 112 39S177 141 226 92 278 30 326 78 385 131 427 62 489 99 560 77V107C505 139 483 34 438 91S377 152 329 101 274 72 227 110 173 68 125 79 57 114 0 92Z"/>
+            <path id="wave-front" class="wave-line" d="M0 85C52 110 69 72 112 78S176 104 224 81 275 35 326 84 376 130 425 75 490 108 560 78"/>
+            <path id="wave-back" class="wave-line secondary-wave" d="M0 89C52 84 70 28 113 48S176 131 226 94 280 76 328 100 383 53 426 69 492 120 560 89"/>
+          </svg>
+          <span id="shortcut-label" class="shortcut" title="Горячая клавиша">Ctrl + Alt + Space</span>
+          <span id="record-number" class="record-number">Запись 1</span>
+          <div class="record-controls" role="group" aria-label="Управление диктовкой">
+            <button id="restart-record" class="record-side" type="button" aria-label="Очистить текущую запись" title="Начать текущую запись заново. Вставленный текст удалите вручную."><svg class="icon" aria-hidden="true"><use href="#icon-refresh"/></svg></button>
+            <button id="record" class="record-button" type="button" aria-pressed="false"><span class="mic-orb" aria-hidden="true"><svg class="icon mic-icon"><use href="#icon-mic"/></svg></span><span id="record-label">Начать диктовку</span></button>
+            <button id="new-record" class="record-side" type="button" aria-label="Новая запись" title="Новая запись без остановки микрофона"><svg class="icon" aria-hidden="true"><use href="#icon-new"/></svg></button>
+          </div>
+          <div class="statusline"><span id="status-dot" class="dot" aria-hidden="true"></span><span id="status-label" role="status" tabindex="0" aria-label="Состояние записи">Ожидание</span><span id="input-warning" class="input-warning" role="status" aria-live="polite" aria-atomic="true" hidden></span></div>
+          <p id="compact-preview" class="compact-preview" aria-live="polite">Поставьте курсор в нужное поле и начните говорить.</p>
+        </div>
 
-    <section class="panel queue">
-      <div class="section-title"><h2>Ожидающий текст <span id="queue-size" class="counter">0</span></h2></div>
-      <p id="queue-note" class="queue-note">Пусто. Если поле ввода недоступно, текст появится здесь.</p>
-      <div id="queue-items" class="queue-items"></div>
-      <div id="uncertain-items" class="queue-items"></div>
-      <div id="delivery-message" class="footnote"></div>
-    </section>
-    <footer>Никаких API, VPN и автосообщений. Аудио обрабатывается локально.</footer>
-  </main>
+        <div class="editor-toggle-row"><button id="toggle-editor" class="mini quiet editor-toggle" type="button" aria-expanded="false" aria-controls="transcript-editor">Открыть редактор</button></div>
+        <div id="transcript-editor" class="transcript" hidden>
+          <label class="section-label" for="transcribed">Распознанный текст</label>
+          <textarea id="transcribed" name="transcript" class="transcribed" rows="3" lang="ru" spellcheck="true" placeholder="Начните говорить…" aria-describedby="transcript-help transcript-feedback"></textarea>
+          <div class="transcript-actions">
+            <button id="copy-transcript" class="mini" type="button" disabled><svg class="icon" aria-hidden="true"><use href="#icon-copy"/></svg>Копировать</button>
+            <button id="clear-transcript" class="mini quiet" type="button" aria-label="Очистить текст" disabled>Очистить</button>
+          </div>
+          <div class="editor-notes" tabindex="0" aria-label="Подсказки редактора"><div id="partial" class="partial" aria-live="polite"></div><p id="transcript-help" class="footnote">Исправьте текст и скопируйте для ручной вставки.</p><p id="transcript-feedback" class="footnote" role="status"></p></div>
+        </div>
+      </section>
+
+      <section id="panel-model" class="tab-panel settings-panel scroll-area" role="tabpanel" aria-labelledby="tab-model" tabindex="0" hidden>
+        <div class="panel-heading"><h1>Локальная модель</h1><p>Распознавание на вашем компьютере</p></div>
+        <div class="field-heading"><label for="model">Модель Vosk</label><button id="refresh-models" class="text-button" type="button"><svg class="icon" aria-hidden="true"><use href="#icon-refresh"/></svg>Обновить</button></div>
+        <div class="select-wrap"><select id="model" name="model"><option value="">Поиск моделей…</option></select><svg class="icon" aria-hidden="true"><use href="#icon-chevron"/></svg></div>
+        <label class="field-label" for="custom-path">Другая папка модели</label>
+        <div class="path-entry"><input id="custom-path" name="model-path" placeholder="C:\Models\vosk-model-small-ru-0.22" spellcheck="false" aria-describedby="model-help"/><button id="apply-path" class="secondary-button" type="button">Выбрать</button></div>
+        <p id="model-help" class="field-help">Укажите папку с каталогами am/ и conf/.</p>
+        <p id="model-lock" class="field-help lock-note" hidden>Остановите диктовку, чтобы выбрать другую модель.</p>
+        <div class="model-note"><svg class="icon" aria-hidden="true"><use href="#icon-folder"/></svg><div><strong>Всё остаётся локально</strong><p>Модель работает на CPU. Интернет и API-ключи для диктовки не нужны.</p></div></div>
+      </section>
+
+      <section id="panel-settings" class="tab-panel settings-panel scroll-area" role="tabpanel" aria-labelledby="tab-settings" tabindex="0" hidden>
+        <div class="panel-heading"><h1>Параметры диктовки</h1></div>
+        <div class="hotkey-settings">
+          <label class="field-label" for="hotkey-input">Горячая клавиша</label>
+          <div class="hotkey-entry"><input id="hotkey-input" type="text" value="Ctrl+Alt+Space" maxlength="96" spellcheck="false" autocomplete="off" aria-describedby="hotkey-help hotkey-feedback"/><button id="capture-hotkey" class="secondary-button" type="button" aria-pressed="false">Записать</button></div>
+          <p id="hotkey-help" class="footnote">Запишите сочетание или введите, например Ctrl+Shift+F9.</p>
+          <div class="hotkey-actions"><button id="apply-hotkey" class="secondary-button" type="button">Применить</button><button id="reset-hotkey" class="text-button" type="button">По умолчанию</button><span id="hotkey-active" class="hotkey-active"></span></div>
+          <p id="hotkey-feedback" class="footnote" role="status" aria-live="polite"></p>
+        </div>
+        <div class="toggle-row"><div><label for="auto-new-record">Новая запись после тишины</label><p id="auto-new-help">После паузы следующая речь начнёт новую запись. Микрофон остаётся включённым.</p></div><span class="switch"><input id="auto-new-record" type="checkbox" aria-describedby="auto-new-help"/><span aria-hidden="true"></span></span></div>
+        <div class="silence-row"><label for="silence-seconds">Интервал тишины</label><div><input id="silence-seconds" type="number" min="1" max="60" step="1" value="3" aria-describedby="silence-help record-options-feedback"/><span>сек.</span></div></div>
+        <p id="silence-help" class="footnote">От 1 до 60 секунд. Отсчёт после голоса, до первой речи таймер не запускается.</p>
+        <p id="record-options-feedback" class="footnote" role="status"></p>
+        <div class="toggle-row"><div><label for="hover-insert">Вставка при наведении</label><p id="hover-help">Наведение на поле на 0,7 с активирует ввод, если поле ещё не выбрано.</p></div><span class="switch"><input id="hover-insert" name="hover-insert" type="checkbox" aria-describedby="hover-help" checked/><span aria-hidden="true"></span></span></div>
+        <p class="settings-note">Отправка сообщения остаётся за вами.</p>
+      </section>
+
+      <section id="panel-queue" class="tab-panel queue-panel" role="tabpanel" aria-labelledby="tab-queue" hidden>
+        <div class="panel-heading queue-heading"><div><h1>Ожидающий текст <span id="queue-size" class="counter">0</span></h1><p id="queue-note">Нет ожидающих фрагментов.</p></div></div>
+        <div class="queue-scroll scroll-area" tabindex="0" aria-label="Фрагменты диктовки">
+          <div id="queue-empty" class="empty-state"><svg class="icon" aria-hidden="true"><use href="#icon-queue"/></svg><strong>Очередь пуста</strong><p>Если поле ввода недоступно,<br/>распознанный текст появится здесь.</p></div>
+          <div id="queue-items" class="queue-items"></div>
+          <h2 id="uncertain-heading" class="uncertain-heading" hidden>Неподтверждённые попытки</h2>
+          <div id="uncertain-items" class="queue-items"></div>
+          <section id="record-history" class="record-history" aria-labelledby="history-heading" hidden><h2 id="history-heading" class="uncertain-heading">Завершённые записи</h2><div id="history-items" class="queue-items"></div></section>
+        </div>
+        <div id="delivery-message" class="footnote delivery-message" role="status" tabindex="0" aria-label="Состояние вставки"></div>
+      </section>
+    </main>
+
+    <footer class="app-footer"><span><svg class="icon" aria-hidden="true"><use href="#icon-mic"/></svg><span id="footer-status">Микрофон по умолчанию</span></span><span class="local-mode">Vosk · CPU · RU</span></footer>
+  </div>
 </body>
 </html>
