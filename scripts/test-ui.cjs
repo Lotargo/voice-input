@@ -75,6 +75,7 @@ async function openApp(commands = {}, clipboardWrite, options = {}) {
         if (name === 'available_models') return [{ name: 'test', path: 'C:\\test' }];
         if (name === 'recording_status') return { session: 0, recording: false, message: 'Ожидание' };
         if (name === 'update_info') return { version: '0.2.0', mode: 'portable', supported: true, last_result: null };
+        if (name === 'input_settings' || name === 'set_input_settings') return { options: { device_id: args?.deviceId ?? null, device_name: null, denoise: args?.denoise ?? false }, devices: [{ id: 'wasapi:test', name: 'Микрофон по умолчанию', is_default: true }], name: 'Микрофон по умолчанию', available: true, error: null };
         if (name === 'delivery_status') return { pending: [], uncertain: [], last_message: '' };
         if (name === 'hotkey_status') return { shortcut: 'Ctrl+Alt+Space', default_shortcut: 'Ctrl+Alt+Space', active: true, error: null };
         if (name === 'set_hotkey') return { shortcut: args.shortcut, default_shortcut: 'Ctrl+Alt+Space', active: true, error: null };
@@ -104,6 +105,7 @@ async function openApp(commands = {}, clipboardWrite, options = {}) {
   vm.runInContext(readFileSync(join(__dirname, '../ui/wave.js'), 'utf8'), sandbox);
   vm.runInContext(readFileSync(join(__dirname, '../ui/records.js'), 'utf8'), sandbox);
   vm.runInContext(readFileSync(join(__dirname, '../ui/updates.js'), 'utf8'), sandbox);
+  vm.runInContext(readFileSync(join(__dirname, '../ui/audio.js'), 'utf8'), sandbox);
   vm.runInContext(readFileSync(join(__dirname, '../ui/app.js'), 'utf8'), sandbox);
   await new Promise(setImmediate);
   return {
@@ -146,6 +148,95 @@ async function openApp(commands = {}, clipboardWrite, options = {}) {
     },
   };
 }
+
+test('audio settings save the device identity and suppression choice', async () => {
+  const app = await openApp();
+  await app.click('microphone-settings');
+  await new Promise(setImmediate);
+  assert.equal(app.element('panel-settings').hidden, false);
+  assert.equal(app.element('settings-audio').hidden, false);
+  app.element('input-device').value = 'wasapi:test';
+  app.element('noise-suppression').checked = true;
+  await app.element('input-device').handlers.get('change')();
+  const call = app.calls.find(call => call.name === 'set_input_settings');
+  assert.equal(call.args.deviceId, 'wasapi:test');
+  assert.equal(call.args.denoise, true);
+  assert.equal(app.element('noise-suppression').checked, true);
+  assert.equal(app.calls.some(call => call.name === 'begin_microphone_test' || call.name === 'begin_recording'), false);
+});
+
+test('a missing pinned microphone stays selected until the user chooses a replacement', async () => {
+  const app = await openApp({ input_settings: () => ({ options: { device_id: 'wasapi:missing', device_name: 'USB mic', denoise: false }, devices: [], name: 'USB mic', available: false }) });
+  assert.equal(app.element('input-device').value, 'wasapi:missing');
+  assert.equal(app.element('test-input').disabled, true);
+  assert.match(app.element('input-device-name').textContent, /Недоступен/);
+  assert.equal(app.calls.some(call => call.name === 'set_input_settings'), false);
+});
+
+test('a failed audio preference save restores the previous controls', async () => {
+  const app = await openApp({ set_input_settings: () => { throw new Error('Read only'); } });
+  app.element('noise-suppression').checked = true;
+  await app.element('noise-suppression').handlers.get('change')();
+  assert.equal(app.element('noise-suppression').checked, false);
+  assert.match(app.element('audio-feedback').textContent, /Read only/);
+});
+
+test('microphone level check leaves transcripts and delivery ownership untouched', async () => {
+  const app = await openApp();
+  app.emit('transcription-final', { session: 1, id: '1:1', text: 'Сохранённый текст' });
+  await app.click('microphone-settings');
+  await new Promise(setImmediate);
+  await app.click('test-input');
+  app.emit('recording-status', { session: 2, recording: true, testing: true, message: 'Проверка' });
+  app.emit('audio-levels', { session: 2, testing: true, raw_rms: .5, rms: .005, input_peak: 1, clipped_ratio: .02, bands: [] });
+  assert.equal(app.element('record').disabled, true);
+  assert.equal(app.element('noise-suppression').disabled, true);
+  assert.match(app.element('input-quality').textContent, /Перегрузка/);
+  assert.ok(app.element('input-level').value > app.element('clean-level').value);
+  assert.equal(app.element('transcribed').value, 'Сохранённый текст');
+  assert.equal(app.calls.some(call => ['begin_recording', 'take_pending', 'edit_record', 'discard_pending'].includes(call.name)), false);
+  assert.equal(app.clipboard.length, 0);
+  await app.click('settings-tab-dictation');
+  assert.ok(app.calls.some(call => call.name === 'end_microphone_test'));
+  app.emit('recording-status', { session: 2, recording: false, testing: true, message: 'Проверка завершена' });
+  await new Promise(setImmediate);
+  assert.equal(app.element('record').disabled, false);
+});
+
+test('leaving audio settings during a delayed start cannot leave a microphone check running', async () => {
+  let finish;
+  const app = await openApp({ begin_microphone_test: () => new Promise(resolve => { finish = resolve; }) });
+  await app.click('microphone-settings');
+  await new Promise(setImmediate);
+  const start = app.click('test-input');
+  await app.click('tab-dictation');
+  finish(); await start;
+  assert.ok(app.calls.some(call => call.name === 'end_microphone_test'));
+  assert.equal(app.calls.some(call => call.name === 'begin_recording'), false);
+});
+
+test('settings sections support keyboard navigation with one active tab stop', async () => {
+  const app = await openApp();
+  await app.click('tab-settings');
+  assert.equal(app.keydown('settings-tab-audio', 'ArrowRight'), true);
+  assert.equal(app.focused(), 'settings-tab-dictation');
+  assert.equal(app.element('settings-dictation').hidden, false);
+  assert.equal(app.keydown('settings-tab-dictation', 'End'), true);
+  assert.equal(app.focused(), 'settings-tab-updates');
+  assert.equal(app.element('settings-updates').hidden, false);
+  assert.equal(app.element('settings-tab-audio').tabIndex, -1);
+});
+
+test('a hardware error restores idle controls while preserving the current record', async () => {
+  const app = await openApp();
+  app.emit('recording-status', { session: 1, recording: true, message: 'Запись' });
+  app.emit('transcription-final', { session: 1, id: '1:1', text: 'Текст до отключения' });
+  app.emit('recording-status', { session: 1, recording: false, message: 'Микрофон отключён' });
+  assert.equal(app.element('transcribed').value, 'Текст до отключения');
+  assert.equal(app.element('record').getAttribute('aria-pressed'), 'false');
+  assert.equal(app.element('input-device').disabled, false);
+  assert.equal(app.calls.some(call => call.name === 'begin_recording'), false);
+});
 
 test('startup reads local update info without checking the network', async () => {
   const app = await openApp();
@@ -567,7 +658,7 @@ test('switching tabs preserves the corrected draft and recording state', async (
   assert.equal(app.element('transcribed').value, 'Исправленный текст');
   assert.equal(app.element('transcribed').readOnly, true);
   assert.equal(app.element('record').getAttribute('aria-pressed'), 'true');
-  assert.equal(app.calls.length, before);
+  assert.ok(app.calls.slice(before).every(call => call.name === 'input_settings'));
 });
 
 test('tabs support arrow keys, Home and End with one active tab stop', async () => {

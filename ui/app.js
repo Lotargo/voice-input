@@ -6,6 +6,7 @@ const $ = (id) => document.getElementById(id);
 const model = $('model');
 const transcript = $('transcribed');
 let recording = false;
+let testingInput = false;
 let currentSession = null;
 let transcriptBusy = false;
 let transcriptRevision = 0;
@@ -26,7 +27,37 @@ let hotkeyCaptureGeneration = 0;
 let hotkeyCaptureTimer;
 const wave = new window.VoiceWave($('voice-waves'), $('wave-front'), $('wave-back'), $('wave-ribbon'), renderSignalStatus);
 const updates = new window.VoiceUpdates($, (name, args) => call(name, args), listen,
-  (busy) => { $('record').disabled = busy; });
+  () => captureControls());
+const audioInput = new window.VoiceAudio($, (name, args) => call(name, args), () => { captureControls(); updateFooter(); });
+let settingsPage = 'audio';
+
+function captureControls() {
+  $('record').disabled = testingInput || audioInput.testing || (audioInput.busy && !recording) || Boolean(updates.busy && updates.installing) || (recordTransitionBusy && !recording);
+}
+
+function selectSettings(name, focus = false) {
+  if (!['audio', 'dictation', 'updates'].includes(name)) return;
+  settingsPage = name;
+  $('panel-settings').scrollTop = 0;
+  for (const item of ['audio', 'dictation', 'updates']) {
+    $(`settings-${item}`).hidden = item !== name;
+    $(`settings-tab-${item}`).setAttribute('aria-selected', String(item === name));
+    $(`settings-tab-${item}`).tabIndex = item === name ? 0 : -1;
+  }
+  if (name !== 'audio') audioInput.stopTest();
+  if (name !== 'dictation' && (hotkeyCapturing || hotkeyCaptureStarting)) stopHotkeyCapture();
+  audioInput.setVisible(selectedTab === 'settings' && name === 'audio' && !document.hidden);
+  if (focus) $(`settings-tab-${name}`).focus();
+}
+for (const [index, name] of ['audio', 'dictation', 'updates'].entries()) {
+  $(`settings-tab-${name}`).addEventListener('click', () => selectSettings(name));
+  $(`settings-tab-${name}`).addEventListener('keydown', event => {
+    const names = ['audio', 'dictation', 'updates'];
+    const target = event.key === 'ArrowRight' ? names[(index + 1) % 3] : event.key === 'ArrowLeft' ? names[(index + 2) % 3] : event.key === 'Home' ? names[0] : event.key === 'End' ? names[2] : null;
+    if (target) { event.preventDefault(); selectSettings(target, true); }
+  });
+}
+$('microphone-settings').addEventListener('click', () => { selectTab('settings'); selectSettings('audio'); $('input-device').focus(); });
 
 function renderSignalStatus(signal) {
   const warning = $('input-warning');
@@ -60,6 +91,8 @@ function selectTab(name, focus = false) {
   if (!tabNames.includes(name)) return;
   if (name !== 'settings' && (hotkeyCapturing || hotkeyCaptureStarting)) stopHotkeyCapture();
   selectedTab = name;
+  if (name !== 'settings') audioInput.stopTest();
+  else if (settingsPage === 'audio') audioInput.refresh();
   for (const item of tabNames) {
     const selected = item === name;
     const tab = $(`tab-${item}`);
@@ -68,6 +101,7 @@ function selectTab(name, focus = false) {
     $(`panel-${item}`).hidden = !selected;
   }
   if (focus) $(`tab-${name}`).focus();
+  audioInput.setVisible(name === 'settings' && settingsPage === 'audio' && !document.hidden);
   waveVisibility();
 }
 
@@ -102,8 +136,9 @@ function status(message, isRecording = recording, error = false) {
   $('record').classList.toggle('active', recording);
   $('record').setAttribute('aria-pressed', String(recording));
   $('record-label').textContent = recording ? 'Закончить диктовку' : 'Начать диктовку';
-  for (const id of ['model', 'refresh-models', 'custom-path', 'apply-path']) $(id).disabled = recording;
-  $('model-lock').hidden = !recording;
+  for (const id of ['model', 'refresh-models', 'custom-path', 'apply-path']) $(id).disabled = recording || testingInput;
+  $('model-lock').hidden = !recording && !testingInput;
+  captureControls();
   updateFooter();
   transcriptControls();
 }
@@ -116,10 +151,10 @@ async function call(name, args = {}) {
 function prettyHotkey(value) { return value.split('+').join(' + '); }
 
 function updateFooter() {
-  $('footer-status').textContent = recording ?
+  $('footer-status').textContent = testingInput ? 'Проверка микрофона' : recording ?
     `Диктовка включена${hotkeyView.active ? ` · ${prettyHotkey(hotkeyView.shortcut)}` : ''}` :
-    'Микрофон по умолчанию';
-  $('footer-status').title = $('footer-status').textContent;
+    audioInput.label;
+  $('footer-status').title = `${audioInput.label} · ${$('footer-status').textContent}`;
 }
 
 function hotkeyFeedback(message, error = false) {
@@ -212,8 +247,8 @@ document.addEventListener?.('keydown', (event) => {
   parts.push(event.code.replace(/^Key(?=[A-Z]$)|^Digit(?=\d$)/, ''));
   stopHotkeyCapture(parts.join('+'));
 });
-window.addEventListener?.('blur', () => stopHotkeyCapture());
-document.addEventListener?.('visibilitychange', () => { if (document.hidden) stopHotkeyCapture(); });
+window.addEventListener?.('blur', () => { stopHotkeyCapture(); audioInput.stopTest(); });
+document.addEventListener?.('visibilitychange', () => { if (document.hidden) stopHotkeyCapture(); audioInput.setVisible(!document.hidden && selectedTab === 'settings' && settingsPage === 'audio'); });
 
 async function applyHotkey(shortcut) {
   if (hotkeySaving || hotkeyCapturing || hotkeyCaptureStarting) return;
@@ -269,9 +304,9 @@ function transcriptControls() {
   transcript.readOnly = recording || transcriptBusy || recordTransitionBusy;
   $('copy-transcript').disabled = recording || transcriptBusy || recordTransitionBusy || !transcript.value.trim();
   $('clear-transcript').disabled = recording || transcriptBusy || recordTransitionBusy || (!transcript.value && !transcriptIds.size);
-  $('restart-record').disabled = transcriptBusy || recordTransitionBusy || (!recording && !transcript.value && !recordBook.current.partial);
-  $('new-record').disabled = transcriptBusy || recordTransitionBusy;
-  $('record').disabled = recordTransitionBusy && !recording;
+  $('restart-record').disabled = testingInput || transcriptBusy || recordTransitionBusy || (!recording && !transcript.value && !recordBook.current.partial);
+  $('new-record').disabled = testingInput || transcriptBusy || recordTransitionBusy;
+  captureControls();
   $('transcript-help').textContent = recording ?
     'Идёт диктовка. Остановите запись, чтобы поправить или скопировать текст.' :
     'Правка относится к текущей записи. Вставленный во внешнее поле текст измените вручную.';
@@ -327,8 +362,10 @@ function acceptSession(session) {
 
 function recordingStatus(payload) {
   if (!acceptSession(payload.session)) return;
+  testingInput = Boolean(payload.recording && payload.testing);
+  audioInput.setStatus(payload);
   updates.setRecording(payload.recording);
-  status(payload.message, payload.recording, !payload.recording && /не найден|ошиб|не удалось|Vosk/.test(payload.message));
+  status(payload.message, payload.recording && !payload.testing, !payload.recording && /не найден|ошиб|не удалось|Vosk|отключ|недоступ|прерван|перестал|переполн/.test(payload.message));
   if (!payload.recording) { recordBook.current.partial = ''; showCurrentRecord(); }
 }
 
@@ -560,6 +597,7 @@ $('hover-insert').addEventListener('change', async (ev) => {
 async function init() {
   if (!runtime) { status('Откройте Voice Input как Windows-приложение', false, true); return; }
   await updates.init();
+  await audioInput.refresh();
   $('auto-new-record').checked = localStorage.getItem('auto-new-record') === 'true';
   const silence = Number(localStorage.getItem('silence-seconds') || '3');
   $('silence-seconds').value = String(Number.isInteger(silence) && silence >= 1 && silence <= 60 ? silence : 3);
@@ -570,16 +608,19 @@ async function init() {
     recordingStatus(payload);
   });
   await listen('transcription-partial', ({payload}) => {
+    if (testingInput || payload.testing) return;
     if (!acceptSession(payload.session)) return;
     if (recordBook.partial(payload)) showCurrentRecord();
   });
   await listen('transcription-final', ({payload}) => {
+    if (testingInput || payload.testing) return;
     if (!acceptSession(payload.session)) return;
     appendTranscript(payload);
     $('partial').textContent = '';
   });
   await listen('delivery-status', ({payload}) => renderDelivery(payload));
   await listen('audio-levels', ({payload}) => {
+    audioInput.levels(payload);
     if (recording && payload.session === currentSession) wave.update(payload);
   });
   await listen('hotkey-status', ({payload}) => renderHotkey(payload));

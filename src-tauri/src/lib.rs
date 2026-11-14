@@ -33,6 +33,8 @@ use models::LocalModel;
 struct RecordingState {
     recording: bool,
     updating: bool,
+    testing: bool,
+    input_name: Option<String>,
     session: u64,
     stop: Option<Arc<AtomicBool>>,
     model: Option<PathBuf>,
@@ -44,14 +46,17 @@ struct AppRuntime {
     delivery: Arc<Delivery>,
     records: Mutex<records::Records>,
     split: Arc<audio::SplitSettings>,
+    audio: Mutex<audio::Preferences>,
 }
 
 impl AppRuntime {
-    fn new() -> Self {
+    fn new(audio_path: Result<PathBuf, String>) -> Self {
         Self {
             recorder: Mutex::new(RecordingState {
                 recording: false,
                 updating: false,
+                testing: false,
+                input_name: None,
                 session: 0,
                 stop: None,
                 model: None,
@@ -60,11 +65,12 @@ impl AppRuntime {
             delivery: Arc::new(Delivery::new()),
             records: Mutex::new(records::Records::new()),
             split: Arc::new(audio::SplitSettings::new()),
+            audio: Mutex::new(audio::Preferences::load(audio_path)),
         }
     }
 
-    fn begin(self: &Arc<Self>, app: AppHandle) -> Result<(), String> {
-        let (session, stop, model, input) = {
+    fn begin(self: &Arc<Self>, app: AppHandle, testing: bool) -> Result<(), String> {
+        let (session, stop, model, dll, input, options) = {
             let mut recorder = self.recorder.lock().unwrap();
             if recorder.updating {
                 return Err("Дождитесь завершения обновления".into());
@@ -72,30 +78,41 @@ impl AppRuntime {
             if recorder.recording {
                 return Err("Запись уже запущена".into());
             }
-            let selected = recorder
-                .model
-                .clone()
-                .or_else(|| {
-                    models::models(&app)
-                        .first()
-                        .map(|model| PathBuf::from(&model.path))
-                })
-                .ok_or("Сначала установите локальную модель Vosk")?;
-            if !models::looks_like_model(&selected) {
+            let selected = if testing {
+                PathBuf::new()
+            } else {
+                recorder
+                    .model
+                    .clone()
+                    .or_else(|| {
+                        models::models(&app)
+                            .first()
+                            .map(|model| PathBuf::from(&model.path))
+                    })
+                    .ok_or("Сначала установите локальную модель Vosk")?
+            };
+            if !testing && !models::looks_like_model(&selected) {
                 return Err("Папка выбранной модели не содержит am/ и conf/".into());
             }
-            let dll = models::dll_path(&app)?;
+            let dll = if testing {
+                PathBuf::new()
+            } else {
+                models::dll_path(&app)?
+            };
             // Validate runtime dependencies BEFORE setting the session to 'recording'.
-            if !dll.is_file() {
+            if !testing && !dll.is_file() {
                 return Err("libvosk.dll не найден".into());
             }
+            let options = self.audio.lock().unwrap().capture_options()?;
             recorder.recording = true;
+            recorder.testing = testing;
+            recorder.input_name = None;
             recorder.session += 1;
             let stop = Arc::new(AtomicBool::new(false));
             recorder.stop = Some(stop.clone());
             let (control, input) = audio::input_channel();
             recorder.control = Some(control);
-            (recorder.session, stop, selected, input)
+            (recorder.session, stop, selected, dll, input, options)
         };
         let runtime = self.clone();
         std::thread::spawn(move || {
@@ -103,17 +120,17 @@ impl AppRuntime {
                 "recording-status",
                 RecordingView {
                     recording: true,
+                    testing,
+                    input_name: None,
                     session,
-                    message: "Загрузка модели и запуск микрофона".into(),
+                    message: if testing {
+                        "Запуск проверки микрофона"
+                    } else {
+                        "Загрузка модели и запуск микрофона"
+                    }
+                    .into(),
                 },
             );
-            let dll = match models::dll_path(&app) {
-                Ok(value) => value,
-                Err(e) => {
-                    runtime.end_session(&app, session, Some(e));
-                    return;
-                }
-            };
             let mut segment: u32 = 0;
             let result = audio::record_session(
                 &model,
@@ -121,18 +138,28 @@ impl AppRuntime {
                 stop,
                 input,
                 runtime.split.clone(),
+                options,
+                testing,
                 |ev| match ev {
-                    AudioEvent::Started => {
+                    AudioEvent::Started(name) => {
+                        runtime.recorder.lock().unwrap().input_name = Some(name.clone());
                         let _ = app.emit(
                             "recording-status",
                             RecordingView {
                                 recording: true,
+                                testing,
+                                input_name: Some(name),
                                 session,
-                                message: "Запись идёт".into(),
+                                message: if testing {
+                                    "Проверка микрофона — до 20 секунд"
+                                } else {
+                                    "Запись идёт"
+                                }
+                                .into(),
                             },
                         );
                     }
-                    AudioEvent::Partial(text) => {
+                    AudioEvent::Partial(text) if !testing => {
                         let mut records = runtime.records.lock().unwrap();
                         records.partial(text.clone());
                         let (record_id, generation, version) = records.identity();
@@ -148,9 +175,16 @@ impl AppRuntime {
                         );
                     }
                     AudioEvent::Levels(levels) => {
-                        let _ = app.emit("audio-levels", AudioLevelsView { session, levels });
+                        let _ = app.emit(
+                            "audio-levels",
+                            AudioLevelsView {
+                                session,
+                                testing,
+                                levels,
+                            },
+                        );
                     }
-                    AudioEvent::Final(text) => {
+                    AudioEvent::Final(text) if !testing => {
                         segment += 1;
                         let mut records = runtime.records.lock().unwrap();
                         let id = format!("{session}:{segment}");
@@ -178,9 +212,10 @@ impl AppRuntime {
                             },
                         );
                     }
-                    AudioEvent::Boundary(action) => {
+                    AudioEvent::Boundary(action) if !testing => {
                         runtime.change_record(&app, action);
                     }
+                    _ => {}
                 },
                 |record_id, generation| {
                     let identity = runtime.records.lock().unwrap().identity();
@@ -193,8 +228,12 @@ impl AppRuntime {
     }
 
     fn end_session(&self, app: &AppHandle, session: u64, error: Option<String>) {
+        let testing;
+        let input_name;
         {
             let mut current = self.recorder.lock().unwrap();
+            testing = current.testing;
+            input_name = current.input_name.clone();
             if current.session == session {
                 current.recording = false;
                 current.stop = None;
@@ -205,8 +244,16 @@ impl AppRuntime {
             "recording-status",
             RecordingView {
                 recording: false,
+                testing,
+                input_name,
                 session,
-                message: error.unwrap_or_else(|| "Запись завершена".into()),
+                message: error.unwrap_or_else(|| {
+                    if testing {
+                        "Проверка микрофона завершена".into()
+                    } else {
+                        "Запись завершена".into()
+                    }
+                }),
             },
         );
     }
@@ -236,7 +283,7 @@ impl AppRuntime {
             self.stop();
             Ok(())
         } else {
-            self.begin(app)
+            self.begin(app, false)
         }
     }
 
@@ -244,8 +291,12 @@ impl AppRuntime {
         let state = self.recorder.lock().unwrap();
         RecordingView {
             recording: state.recording,
+            testing: state.testing,
+            input_name: state.input_name.clone(),
             session: state.session,
-            message: if state.recording {
+            message: if state.recording && state.testing {
+                "Проверка микрофона"
+            } else if state.recording {
                 "Запись идёт"
             } else {
                 "Ожидание"
@@ -258,6 +309,8 @@ impl AppRuntime {
 #[derive(Clone, Serialize)]
 struct RecordingView {
     recording: bool,
+    testing: bool,
+    input_name: Option<String>,
     session: u64,
     message: String,
 }
@@ -284,6 +337,7 @@ struct FinalTranscriptView {
 #[derive(Clone, Serialize)]
 struct AudioLevelsView {
     session: u64,
+    testing: bool,
     #[serde(flatten)]
     levels: audio::AudioLevels,
 }
@@ -353,6 +407,9 @@ async fn change_record(
             audio::RecordAction::New
         };
         let recorder = state.recorder.lock().unwrap();
+        if recorder.recording && recorder.testing {
+            return Err("Завершите проверку микрофона перед сменой записи".into());
+        }
         if recorder.session != session {
             return Err("Диктовка уже перезапущена. Повторите действие для текущей записи.".into());
         }
@@ -388,7 +445,40 @@ fn set_hover_delivery(app: AppHandle, state: State<'_, Arc<AppRuntime>>, enabled
 
 #[tauri::command]
 fn begin_recording(app: AppHandle, state: State<'_, Arc<AppRuntime>>) -> Result<(), String> {
-    state.begin(app)
+    state.begin(app, false)
+}
+
+#[tauri::command]
+fn input_settings(state: State<'_, Arc<AppRuntime>>) -> Result<audio::InputView, String> {
+    state.audio.lock().unwrap().view()
+}
+
+#[tauri::command]
+fn set_input_settings(
+    state: State<'_, Arc<AppRuntime>>,
+    device_id: Option<String>,
+    denoise: bool,
+) -> Result<audio::InputView, String> {
+    let recorder = state.recorder.lock().unwrap();
+    if recorder.recording || recorder.updating {
+        return Err("Завершите диктовку или проверку микрофона перед сменой настроек звука".into());
+    }
+    state.audio.lock().unwrap().save(device_id, denoise)
+}
+
+#[tauri::command]
+fn begin_microphone_test(app: AppHandle, state: State<'_, Arc<AppRuntime>>) -> Result<(), String> {
+    state.begin(app, true)
+}
+
+#[tauri::command]
+fn end_microphone_test(state: State<'_, Arc<AppRuntime>>) {
+    let recorder = state.recorder.lock().unwrap();
+    if recorder.testing {
+        if let Some(flag) = &recorder.stop {
+            flag.store(true, Ordering::Release);
+        }
+    }
 }
 
 #[tauri::command]
@@ -428,7 +518,12 @@ pub fn run() {
         .plugin(tauri_plugin_updater::Builder::new().build())
         .manage(updates::Updates::default())
         .setup(|app| {
-            let runtime = Arc::new(AppRuntime::new());
+            let runtime = Arc::new(AppRuntime::new(
+                app.path()
+                    .app_config_dir()
+                    .map(|p| p.join("audio.json"))
+                    .map_err(|e| e.to_string()),
+            ));
             runtime.delivery.clone().spawn_monitor(app.handle().clone());
             app.manage(runtime);
 
@@ -455,6 +550,8 @@ pub fn run() {
                                         "recording-status",
                                         RecordingView {
                                             recording: false,
+                                            testing: state.view().testing,
+                                            input_name: state.view().input_name,
                                             session: state.view().session,
                                             message: error,
                                         },
@@ -493,6 +590,14 @@ pub fn run() {
                 event,
                 WindowEvent::Focused(false) | WindowEvent::CloseRequested { .. }
             ) {
+                if let Some(runtime) = window.try_state::<Arc<AppRuntime>>() {
+                    let recorder = runtime.recorder.lock().unwrap();
+                    if recorder.testing {
+                        if let Some(stop) = &recorder.stop {
+                            stop.store(true, Ordering::Release);
+                        }
+                    }
+                }
                 if let Some(hotkeys) = window.try_state::<Arc<hotkey::Hotkeys>>() {
                     hotkeys.set_capture(false);
                 }
@@ -511,6 +616,10 @@ pub fn run() {
             change_record,
             set_hover_delivery,
             begin_recording,
+            input_settings,
+            set_input_settings,
+            begin_microphone_test,
+            end_microphone_test,
             end_recording,
             recording_status,
             delivery_status,

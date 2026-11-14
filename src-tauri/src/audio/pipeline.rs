@@ -1,4 +1,3 @@
-use super::visualizer::AudioAnalyzer;
 use super::{
     silence::{Decision, SilenceClock},
     AudioEvent, RecordAction, SplitSettings,
@@ -35,7 +34,6 @@ impl Recognizer for Vosk {
 pub(super) struct Pipeline<R: Recognizer> {
     recognizer: R,
     detector: Detector,
-    analyzer: AudioAnalyzer,
     clock: SilenceClock,
     frame: [i16; 256],
     filled: usize,
@@ -48,7 +46,6 @@ impl<R: Recognizer> Pipeline<R> {
         Self {
             recognizer,
             detector: Detector::default(),
-            analyzer: AudioAnalyzer::new(),
             clock: SilenceClock::default(),
             frame: [0; 256],
             filled: 0,
@@ -79,9 +76,6 @@ impl<R: Recognizer> Pipeline<R> {
             }
             self.filled = 0;
             let score = self.detector.predict_i16(&self.frame);
-            if let Some(levels) = self.analyzer.push(&self.frame) {
-                event(AudioEvent::Levels(levels));
-            }
             match self.clock.push(score >= 0.5, 256, settings.get()) {
                 Decision::Seal => {
                     let text = self.recognizer.finish();

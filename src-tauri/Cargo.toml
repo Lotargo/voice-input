@@ -1,6 +1,6 @@
 [package]
 name = "voice-input"
-version = "0.2.0"
+version = "0.3.0"
 default-run = "voice-input"
 description = "Offline Russian voice dictation for Windows"
 authors = ["Lotargo"]
@@ -22,7 +22,8 @@ base64 = "0.23"
 minisign-verify = "0.3"
 semver = "1"
 zip = { version = "9", default-features = false, features = ["deflate"] }
-cpal = "0.15"
+cpal = "0.18.2"
+nnnoiseless = { version = "0.5.2", default-features = false }
 dunce = "1"
 earshot = "1.2"
 libloading = "0.8"

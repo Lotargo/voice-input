@@ -9,6 +9,7 @@
   <script src="./wave.js" defer></script>
   <script src="./records.js" defer></script>
   <script src="./updates.js" defer></script>
+  <script src="./audio.js" defer></script>
   <script src="./app.js" defer></script>
 </head>
 <body>
@@ -92,7 +93,28 @@
       </section>
 
       <section id="panel-settings" class="tab-panel settings-panel scroll-area" role="tabpanel" aria-labelledby="tab-settings" tabindex="0" hidden>
-        <div class="panel-heading"><h1>Параметры диктовки</h1></div>
+        <div class="panel-heading"><h1>Параметры</h1></div>
+        <nav class="settings-tabs" role="tablist" aria-label="Настройки">
+          <button id="settings-tab-audio" type="button" role="tab" aria-selected="true" aria-controls="settings-audio">Звук</button>
+          <button id="settings-tab-dictation" type="button" role="tab" aria-selected="false" aria-controls="settings-dictation" tabindex="-1">Диктовка</button>
+          <button id="settings-tab-updates" type="button" role="tab" aria-selected="false" aria-controls="settings-updates" tabindex="-1">Обновления</button>
+        </nav>
+        <section id="settings-audio" role="tabpanel" aria-labelledby="settings-tab-audio">
+          <div id="audio-settings">
+            <label class="field-label" for="input-device">Микрофон</label>
+            <div class="input-device-row"><select id="input-device" aria-describedby="input-device-name audio-feedback" disabled><option value="default">По умолчанию в Windows</option></select><button id="refresh-inputs" type="button" class="secondary-button" aria-label="Обновить список микрофонов" title="Обновить список">↻</button></div>
+            <p id="input-device-name" class="footnote" role="status">Получаем список устройств…</p>
+            <div class="toggle-row"><div><label for="noise-suppression">Шумоподавление</label><p id="noise-help">RNNoise и фильтр низкого гула · локально на CPU.</p></div><span class="switch"><input id="noise-suppression" type="checkbox" aria-describedby="noise-help audio-feedback" disabled/><span aria-hidden="true"></span></span></div>
+            <p id="audio-lock" class="footnote" hidden>Завершите захват звука, чтобы сменить микрофон или шумоподавление.</p>
+            <div class="microphone-test"><button id="test-input" class="secondary-button" type="button" aria-pressed="false" aria-describedby="test-input-help" disabled>Проверить микрофон</button><p id="test-input-help" class="footnote">Проверка уровня · до 20 секунд · без вставки текста.</p>
+              <div class="level-row"><label for="input-level">Вход</label><meter id="input-level" min="-60" max="0" low="-48" high="-14" optimum="-24" value="-60" aria-valuetext="Тишина"></meter><span id="input-level-value">—</span></div>
+              <div class="level-row"><label for="clean-level">После обработки</label><meter id="clean-level" min="-60" max="0" low="-48" high="-14" optimum="-24" value="-60" aria-valuetext="Тишина"></meter><span id="clean-level-value">—</span></div>
+              <p id="input-quality" class="footnote">Нажмите «Проверить микрофон»</p>
+            </div>
+            <p id="audio-feedback" class="footnote" role="status" aria-live="polite"></p>
+          </div>
+        </section>
+        <section id="settings-updates" role="tabpanel" aria-labelledby="settings-tab-updates" hidden>
         <section class="update-settings" aria-labelledby="updates-heading">
           <div class="update-heading"><h2 id="updates-heading">Обновления</h2><span id="app-version">Voice Input</span></div>
           <div class="update-actions"><button id="check-updates" class="secondary-button" type="button" disabled>Проверить обновления</button><button id="install-update" class="secondary-button" type="button" hidden>Обновить и перезапустить</button></div>
@@ -102,6 +124,8 @@
           <p id="update-restart-note" class="footnote" hidden>Приложение перезапустится. Сначала скопируйте нужный текст редактора и очереди — записи хранятся только до закрытия.</p>
           <p id="update-notes" class="footnote" tabindex="0" aria-label="Изменения в новой версии" hidden></p>
         </section>
+        </section>
+        <section id="settings-dictation" role="tabpanel" aria-labelledby="settings-tab-dictation" hidden>
         <div class="hotkey-settings">
           <label class="field-label" for="hotkey-input">Горячая клавиша</label>
           <div class="hotkey-entry"><input id="hotkey-input" type="text" value="Ctrl+Alt+Space" maxlength="96" spellcheck="false" autocomplete="off" aria-describedby="hotkey-help hotkey-feedback"/><button id="capture-hotkey" class="secondary-button" type="button" aria-pressed="false">Записать</button></div>
@@ -115,6 +139,7 @@
         <p id="record-options-feedback" class="footnote" role="status"></p>
         <div class="toggle-row"><div><label for="hover-insert">Вставка при наведении</label><p id="hover-help">Наведение на поле на 0,7 с активирует ввод, если поле ещё не выбрано.</p></div><span class="switch"><input id="hover-insert" name="hover-insert" type="checkbox" aria-describedby="hover-help" checked/><span aria-hidden="true"></span></span></div>
         <p class="settings-note">Отправка сообщения остаётся за вами.</p>
+        </section>
       </section>
 
       <section id="panel-queue" class="tab-panel queue-panel" role="tabpanel" aria-labelledby="tab-queue" hidden>
@@ -130,7 +155,7 @@
       </section>
     </main>
 
-    <footer class="app-footer"><span><svg class="icon" aria-hidden="true"><use href="#icon-mic"/></svg><span id="footer-status">Микрофон по умолчанию</span></span><span class="local-mode">Vosk · CPU · RU</span></footer>
+    <footer class="app-footer"><button id="microphone-settings" type="button" aria-label="Настроить микрофон"><svg class="icon" aria-hidden="true"><use href="#icon-mic"/></svg><span id="footer-status">Микрофон по умолчанию</span></button><span class="local-mode">Vosk · CPU · RU</span></footer>
   </div>
 </body>
 </html>

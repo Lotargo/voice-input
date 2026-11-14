@@ -12,6 +12,7 @@ const EDGES: [f32; 9] = [
 #[derive(Clone, Copy, Debug, Default, Serialize)]
 pub struct AudioLevels {
     pub rms: f32,
+    pub raw_rms: f32,
     pub peak: f32,
     /// Absolute digital peak and fraction of near-rail PCM samples, before DC removal.
     pub input_peak: f32,
@@ -99,6 +100,7 @@ impl AudioAnalyzer {
         }
         AudioLevels {
             rms,
+            raw_rms: rms,
             peak: peak.clamp(0.0, 1.0),
             input_peak,
             clipped_ratio: clipped as f32 / WINDOW as f32,

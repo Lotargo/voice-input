@@ -9,11 +9,13 @@
 - At-most-once attempts keyed by session/segment. Dequeue BEFORE attempting SendInput; uncertain attempts must NEVER auto-retry. Preserve system clipboard except when user explicitly clicks Copy.
 
 ## Architecture boundaries
-- `src-tauri/src/audio.rs`: CPAL capture/resampling, one FIFO for PCM and record controls, manual stop. Vosk endpoints never stop capture.
+- `src-tauri/src/audio.rs`: CPAL capture, one FIFO for PCM and record controls, manual stop and device-loss handling. Keep heavy DSP out of the callback. Vosk endpoints never stop capture.
+- `src-tauri/src/audio/settings.rs`: persist stable input device IDs and the noise-suppression choice atomically. A missing selected device must never silently switch to another microphone. Lock changes during capture or update installation.
+- `src-tauri/src/audio/processing.rs`: worker-side resampling with an anti-aliasing filter; optional 48 kHz 100 Hz high-pass + nnnoiseless/RNNoise, then 16 kHz for VAD/Vosk. Preserve raw levels before filtering so clipping stays visible. Noise suppression is off by default.
 - `src-tauri/src/audio/pipeline.rs`: same-stream local VAD, decoder flush/reset, continuous manual/automatic record boundaries. Preserve audio before/after controls; clear intentionally discards the current unfinished hypothesis.
 - `src-tauri/src/audio/silence.rs`: optional 1–60 second silence clock, default 3/off. Start at last speech end, never at capture start; open the next record only when speech resumes.
 - `src-tauri/src/records.rs`: logical records independent of capture sessions and STT segments; keep completed history and edited text in RAM. Clear only the current generation/pending IDs; retain uncertain attempts and deduplication.
-- `src-tauri/src/audio/visualizer.rs`: read-only RMS/AC peak, raw digital peak, near-rail sample ratio and FFT-band analysis of the existing 16 kHz PCM; no second capture stream or VAD. Signal overload is digital headroom, not acoustic SPL.
+- `src-tauri/src/audio/visualizer.rs`: read-only RMS/AC peak and FFT-band analysis of the processed 16 kHz PCM. The processor supplies raw RMS, digital peak and near-rail sample ratio before filtering; no second capture stream or VAD. Signal overload is digital headroom, not acoustic SPL.
 - `src-tauri/src/vosk.rs`: native Vosk late binding, DLL loading and object lifetime.
 - `src-tauri/src/delivery.rs`: UI Automation validation, queue, Unicode SendInput, delivery status.
 - `src-tauri/src/models.rs`: local model / DLL discovery.
@@ -22,6 +24,7 @@
 - `src-tauri/src/updates.rs`: user-initiated signed updates, separate portable/NSIS manifests, no startup polling or embedded GitHub token. Block installation while recording and new capture during updates. Signatures must bind the announced version.
 - `src-tauri/src/updates/portable.rs`: validate signature/paths, stage before exiting, wait for the actual parent, back up and roll back replaced files, restart in the same folder. Preserve unrelated files. Never convert portable into an installation.
 - `ui/`: local assets; no hosted scripts, fonts, CDNs or API calls.
+- `ui/audio.js`: microphone selection, optional noise suppression and a bounded 20-second level check. The check uses the native capture pipeline without Vosk, transcript, queue delivery or saved audio. Stop it when leaving the audio panel, hiding or unfocusing the window. Do not affect ordinary dictation when focus changes.
 - `ui/wave.js`: gentle idle motion at about 10 fps and stronger audio response at about 30 fps; stop both when hidden and respect reduced motion. Amber/high and coral/overload feedback needs a text equivalent, hysteresis and stale-data reset. Compact dictation is the default; opening the optional editor must not take pending delivery ownership.
 - `ui/records.js`: preserve draft edits and reject stale snapshots/old record generations. Record clearing only affects Voice Input and pending delivery; externally inserted text is deleted by the user.
 - `scripts/prepare-assets.ps1`: downloads build-time native runtime and local model.
@@ -38,4 +41,4 @@
 - Known limits: UIA is imperfect in custom editors; Windows injection lacks acceptance ACK; elevated apps can block input.
 
 ## Roadmap (not yet implemented)
-Noise suppression, wake word, better resampler, auto-start; API/LLM only if requested later.
+Wake word, auto-start and additional STT providers remain deferred. Do not add other audio features beyond device selection, loss handling, level check and optional noise suppression without a new request. API/LLM only if requested later.
