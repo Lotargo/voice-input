@@ -7,7 +7,10 @@ mod delivery;
 mod hotkey;
 mod models;
 mod records;
+mod updates;
 mod vosk;
+
+pub use updates::run_helper_if_requested;
 
 use serde::Serialize;
 use std::{
@@ -29,6 +32,7 @@ use models::LocalModel;
 
 struct RecordingState {
     recording: bool,
+    updating: bool,
     session: u64,
     stop: Option<Arc<AtomicBool>>,
     model: Option<PathBuf>,
@@ -47,6 +51,7 @@ impl AppRuntime {
         Self {
             recorder: Mutex::new(RecordingState {
                 recording: false,
+                updating: false,
                 session: 0,
                 stop: None,
                 model: None,
@@ -61,6 +66,9 @@ impl AppRuntime {
     fn begin(self: &Arc<Self>, app: AppHandle) -> Result<(), String> {
         let (session, stop, model, input) = {
             let mut recorder = self.recorder.lock().unwrap();
+            if recorder.updating {
+                return Err("Дождитесь завершения обновления".into());
+            }
             if recorder.recording {
                 return Err("Запись уже запущена".into());
             }
@@ -417,6 +425,8 @@ fn show_window(app: &AppHandle) {
 
 pub fn run() {
     tauri::Builder::default()
+        .plugin(tauri_plugin_updater::Builder::new().build())
+        .manage(updates::Updates::default())
         .setup(|app| {
             let runtime = Arc::new(AppRuntime::new());
             runtime.delivery.clone().spawn_monitor(app.handle().clone());
@@ -509,6 +519,9 @@ pub fn run() {
             hotkey::hotkey_status,
             hotkey::set_hotkey,
             hotkey::set_hotkey_capture,
+            updates::update_info,
+            updates::check_updates,
+            updates::install_update,
         ])
         .run(tauri::generate_context!())
         .expect("Не удалось запустить Voice Input");

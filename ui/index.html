@@ -8,6 +8,7 @@
   <link href="./style.css" rel="stylesheet" />
   <script src="./wave.js" defer></script>
   <script src="./records.js" defer></script>
+  <script src="./updates.js" defer></script>
   <script src="./app.js" defer></script>
 </head>
 <body>
@@ -92,6 +93,15 @@
 
       <section id="panel-settings" class="tab-panel settings-panel scroll-area" role="tabpanel" aria-labelledby="tab-settings" tabindex="0" hidden>
         <div class="panel-heading"><h1>Параметры диктовки</h1></div>
+        <section class="update-settings" aria-labelledby="updates-heading">
+          <div class="update-heading"><h2 id="updates-heading">Обновления</h2><span id="app-version">Voice Input</span></div>
+          <div class="update-actions"><button id="check-updates" class="secondary-button" type="button" disabled>Проверить обновления</button><button id="install-update" class="secondary-button" type="button" hidden>Обновить и перезапустить</button></div>
+          <progress id="update-download" max="1" aria-label="Загрузка обновления" hidden></progress>
+          <p id="update-feedback" class="footnote" role="status" aria-live="polite"></p>
+          <p id="update-stop-note" class="footnote" hidden>Завершите диктовку, чтобы установить обновление.</p>
+          <p id="update-restart-note" class="footnote" hidden>Приложение перезапустится. Сначала скопируйте нужный текст редактора и очереди — записи хранятся только до закрытия.</p>
+          <p id="update-notes" class="footnote" tabindex="0" aria-label="Изменения в новой версии" hidden></p>
+        </section>
         <div class="hotkey-settings">
           <label class="field-label" for="hotkey-input">Горячая клавиша</label>
           <div class="hotkey-entry"><input id="hotkey-input" type="text" value="Ctrl+Alt+Space" maxlength="96" spellcheck="false" autocomplete="off" aria-describedby="hotkey-help hotkey-feedback"/><button id="capture-hotkey" class="secondary-button" type="button" aria-pressed="false">Записать</button></div>

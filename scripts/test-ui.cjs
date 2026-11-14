@@ -34,6 +34,7 @@ async function openApp(commands = {}, clipboardWrite, options = {}) {
     addEventListener(name, callback) { this.handlers.set(name, callback); }
     focus() { focusedId = this.id; }
     setAttribute(name, value) { this.attributes.set(name, value); }
+    removeAttribute(name) { this.attributes.delete(name); }
     getAttribute(name) { return this.attributes.get(name); }
     replaceChildren(...children) { this.children = children; }
     append(...children) { this.children = [...(this.children || []), ...children]; }
@@ -73,6 +74,7 @@ async function openApp(commands = {}, clipboardWrite, options = {}) {
         if (commands[name]) { const value = await commands[name](args); if (value !== undefined) return value; }
         if (name === 'available_models') return [{ name: 'test', path: 'C:\\test' }];
         if (name === 'recording_status') return { session: 0, recording: false, message: 'Ожидание' };
+        if (name === 'update_info') return { version: '0.2.0', mode: 'portable', supported: true, last_result: null };
         if (name === 'delivery_status') return { pending: [], uncertain: [], last_message: '' };
         if (name === 'hotkey_status') return { shortcut: 'Ctrl+Alt+Space', default_shortcut: 'Ctrl+Alt+Space', active: true, error: null };
         if (name === 'set_hotkey') return { shortcut: args.shortcut, default_shortcut: 'Ctrl+Alt+Space', active: true, error: null };
@@ -101,6 +103,7 @@ async function openApp(commands = {}, clipboardWrite, options = {}) {
   const sandbox = vm.createContext(context);
   vm.runInContext(readFileSync(join(__dirname, '../ui/wave.js'), 'utf8'), sandbox);
   vm.runInContext(readFileSync(join(__dirname, '../ui/records.js'), 'utf8'), sandbox);
+  vm.runInContext(readFileSync(join(__dirname, '../ui/updates.js'), 'utf8'), sandbox);
   vm.runInContext(readFileSync(join(__dirname, '../ui/app.js'), 'utf8'), sandbox);
   await new Promise(setImmediate);
   return {
@@ -143,6 +146,65 @@ async function openApp(commands = {}, clipboardWrite, options = {}) {
     },
   };
 }
+
+test('startup reads local update info without checking the network', async () => {
+  const app = await openApp();
+  assert.equal(app.element('app-version').textContent, '0.2.0 · Portable');
+  assert.equal(app.calls.some(call => call.name === 'check_updates'), false);
+  assert.equal(app.calls.some(call => call.name === 'install_update'), false);
+});
+
+test('a checked update requires a separate install click and waits for dictation to stop', async () => {
+  const app = await openApp({ check_updates: async () => ({ version: '0.2.1', notes: 'Исправления' }) });
+  app.emit('recording-status', { session: 1, recording: true, message: 'Запись' });
+  await app.click('check-updates');
+  assert.equal(app.element('install-update').hidden, false);
+  assert.equal(app.element('install-update').disabled, true);
+  assert.equal(app.element('update-stop-note').hidden, false);
+  assert.equal(app.element('update-restart-note').hidden, false);
+  assert.equal(app.element('update-notes').textContent, 'Исправления');
+  await app.click('install-update');
+  assert.equal(app.calls.some(call => call.name === 'install_update'), false);
+  app.emit('recording-status', { session: 1, recording: false, message: 'Стоп' });
+  await app.click('install-update');
+  const install = app.calls.find(call => call.name === 'install_update');
+  assert.equal(install.args.version, '0.2.1');
+  assert.equal(app.element('record').disabled, true);
+});
+
+test('a failed check clears the old offer and an installation failure leaves the app usable', async () => {
+  let failCheck = false;
+  const app = await openApp({
+    check_updates: async () => { if (failCheck) throw new Error('Offline'); return { version: '0.2.1' }; },
+    install_update: async () => { throw new Error('Invalid signature'); },
+  });
+  await app.click('check-updates');
+  await app.click('install-update');
+  assert.match(app.element('update-feedback').textContent, /Invalid signature/);
+  assert.equal(app.element('record').disabled, false);
+  assert.equal(app.element('install-update').disabled, false);
+  failCheck = true;
+  await app.click('check-updates');
+  assert.match(app.element('update-feedback').textContent, /Offline/);
+  assert.equal(app.element('install-update').hidden, true);
+});
+
+test('update progress is bounded and a repeated install cannot launch a second request', async () => {
+  let complete;
+  const app = await openApp({
+    check_updates: async () => ({ version: '0.2.1' }),
+    install_update: () => new Promise(resolve => { complete = resolve; }),
+  });
+  await app.click('check-updates');
+  const installing = app.click('install-update');
+  await app.click('install-update');
+  app.emit('update-progress', { phase: 'downloading', downloaded: 300, total: 200 });
+  assert.equal(app.element('update-download').value, 1);
+  app.emit('update-progress', { phase: 'installing', downloaded: 300, total: 300 });
+  assert.match(app.element('update-feedback').textContent, /Подпись проверена/);
+  assert.equal(app.calls.filter(call => call.name === 'install_update').length, 1);
+  complete(); await installing;
+});
 
 test('pauses keep the full current record in compact preview and the editor', async () => {
   const app = await openApp();

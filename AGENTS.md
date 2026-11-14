@@ -2,7 +2,7 @@
 
 ## Scope
 - Windows 10/11, Tauri 2 + Rust, static HTML/CSS/JS frontend; native portable + NSIS packages.
-- Local CPU-based Russian STT (Vosk) only. No API, VPN, LLM, external service, database, or telemetry for v0.1.
+- Local CPU-based Russian STT (Vosk) only. No cloud STT, VPN, LLM, database, or telemetry. The only runtime network feature is an explicitly requested update check/download from public GitHub Releases.
 - Dictation is user-controlled. NEVER automatically press Enter, send a message, or mutate an Excel workbook.
 - Partial STT hypotheses are **preview only**. Deliver final segments to the user's focused editable field.
 - If no field is eligible, keep final text in an in-memory pending queue. Optional 700 ms hover to focus and deliver.
@@ -19,11 +19,15 @@
 - `src-tauri/src/models.rs`: local model / DLL discovery.
 - `src-tauri/src/lib.rs`: app state, commands, hotkey, tray lifecycle.
 - `src-tauri/src/hotkey.rs`: persistent global shortcut; register the candidate before releasing the active shortcut. Conflicts/storage failures preserve the previous binding. Capture mode must not start dictation and must end when focus is lost.
+- `src-tauri/src/updates.rs`: user-initiated signed updates, separate portable/NSIS manifests, no startup polling or embedded GitHub token. Block installation while recording and new capture during updates. Signatures must bind the announced version.
+- `src-tauri/src/updates/portable.rs`: validate signature/paths, stage before exiting, wait for the actual parent, back up and roll back replaced files, restart in the same folder. Preserve unrelated files. Never convert portable into an installation.
 - `ui/`: local assets; no hosted scripts, fonts, CDNs or API calls.
 - `ui/wave.js`: gentle idle motion at about 10 fps and stronger audio response at about 30 fps; stop both when hidden and respect reduced motion. Amber/high and coral/overload feedback needs a text equivalent, hysteresis and stale-data reset. Compact dictation is the default; opening the optional editor must not take pending delivery ownership.
 - `ui/records.js`: preserve draft edits and reject stale snapshots/old record generations. Record clearing only affects Voice Input and pending delivery; externally inserted text is deleted by the user.
 - `scripts/prepare-assets.ps1`: downloads build-time native runtime and local model.
 - `scripts/build-windows.ps1`: manual installer + portable packaging.
+- `src-tauri/Cargo.toml`: single version source (SemVer); Tauri inherits it. Tags are `vX.Y.Z`. Signed packages go in `dist/portable/X.Y.Z`, `dist/installers/X.Y.Z`, metadata in `dist/releases/X.Y.Z`.
+- `scripts/publish-release.ps1`: local manual release to public `Lotargo/voice-input`; verify clean source, matching build commit and checksums, upload a draft before publishing. Private signing material stays outside Git, protected for the current Windows account.
 
 ## Development workflow
 - Work directly in `main` when requested by the repository owner; do not require a PR or branch.

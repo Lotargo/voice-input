@@ -1,4 +1,4 @@
-/* Static Tauri webview. No remote assets, JS build pipeline, or API calls. */
+/* Static local webview. Update networking is restricted to native commands. */
 const runtime = window.__TAURI__;
 const invoke = runtime?.core?.invoke;
 const listen = runtime?.event?.listen;
@@ -25,6 +25,8 @@ let hotkeyCaptureStarting = false;
 let hotkeyCaptureGeneration = 0;
 let hotkeyCaptureTimer;
 const wave = new window.VoiceWave($('voice-waves'), $('wave-front'), $('wave-back'), $('wave-ribbon'), renderSignalStatus);
+const updates = new window.VoiceUpdates($, (name, args) => call(name, args), listen,
+  (busy) => { $('record').disabled = busy; });
 
 function renderSignalStatus(signal) {
   const warning = $('input-warning');
@@ -325,6 +327,7 @@ function acceptSession(session) {
 
 function recordingStatus(payload) {
   if (!acceptSession(payload.session)) return;
+  updates.setRecording(payload.recording);
   status(payload.message, payload.recording, !payload.recording && /не найден|ошиб|не удалось|Vosk/.test(payload.message));
   if (!payload.recording) { recordBook.current.partial = ''; showCurrentRecord(); }
 }
@@ -556,6 +559,7 @@ $('hover-insert').addEventListener('change', async (ev) => {
 
 async function init() {
   if (!runtime) { status('Откройте Voice Input как Windows-приложение', false, true); return; }
+  await updates.init();
   $('auto-new-record').checked = localStorage.getItem('auto-new-record') === 'true';
   const silence = Number(localStorage.getItem('silence-seconds') || '3');
   $('silence-seconds').value = String(Number.isInteger(silence) && silence >= 1 && silence <= 60 ? silence : 3);

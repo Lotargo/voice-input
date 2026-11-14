@@ -11,4 +11,6 @@
 *.zip
 *.log
 *.local
+*.key
+*.dpapi
 .DS_Store

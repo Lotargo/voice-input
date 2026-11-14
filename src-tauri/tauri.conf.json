@@ -1,7 +1,6 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "Voice Input",
-  "version": "0.1.0",
   "identifier": "dev.lotargo.voiceinput",
   "build": {
     "frontendDist": "../ui"
@@ -29,14 +28,32 @@
   },
   "bundle": {
     "active": true,
-    "targets": ["nsis"],
-    "icon": ["icons/icon.png", "icons/icon.ico"],
-    "resources": ["resources/*.dll", "resources/models/**/*"],
+    "createUpdaterArtifacts": true,
+    "targets": [
+      "nsis"
+    ],
+    "icon": [
+      "icons/icon.png",
+      "icons/icon.ico"
+    ],
+    "resources": [
+      "resources/*.dll",
+      "resources/models/**/*"
+    ],
     "windows": {
       "nsis": {
         "displayLanguageSelector": false,
         "installerIcon": "icons/icon.ico",
         "uninstallerIcon": "icons/icon.ico"
+      }
+    }
+  },
+  "plugins": {
+    "updater": {
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEU5NDAwOEE4QkQ2NDEzRDAKUldUUUUyUzlxQWhBNmFmUUtDT0dYU2JvMTVzcUluaUNyR1FSZ2VoMVRrSjArTnBTSHJJaGE0MysK",
+      "requireSignedVersion": true,
+      "windows": {
+        "installMode": "passive"
       }
     }
   }
