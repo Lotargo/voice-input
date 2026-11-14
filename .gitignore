@@ -1,6 +1,7 @@
 # Build output
 /target/
 /src-tauri/target/
+/src-tauri/gen/
 /node_modules/
 /dist/
 # Native runtime and local model weights are downloaded separately

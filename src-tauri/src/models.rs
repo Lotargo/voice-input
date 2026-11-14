@@ -32,7 +32,9 @@ pub fn models(app: &AppHandle) -> Vec<LocalModel> {
     let mut out = Vec::<LocalModel>::new();
     for root in candidate_roots(app) {
         for base in [root.join("resources/models"), root.join("models")] {
-            let Ok(entries) = std::fs::read_dir(base) else { continue };
+            let Ok(entries) = std::fs::read_dir(base) else {
+                continue;
+            };
             for entry in entries.flatten() {
                 let path = entry.path();
                 if !looks_like_model(&path) {
