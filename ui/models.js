@@ -9,7 +9,7 @@
     async init() { await this.listen('model-catalog', ({ payload }) => this.render(payload)); await this.load(); }
     load() {
       if (!this.loading) this.loading = Promise.resolve().then(() => this.call('model_catalog')).then(view => {
-        if (view?.entries) this.render(view); return view;
+        if (view?.entries) { this.render(view); return this.view; } return view;
       }).finally(() => { this.loading = null; });
       return this.loading;
     }
@@ -56,7 +56,7 @@
         card.card.classList.toggle('model-primary', entry.primary);
         card.card.classList.toggle('model-bundled', entry.bundled);
         card.description.hidden = entry.bundled; card.bytes.hidden = entry.bundled;
-        card.bytes.textContent = entry.bundled ? (entry.id === 'custom' ? 'Ваша папка модели' : 'В комплекте приложения') : `Файлы модели: ${size(entry.size)} · ${entry.license}`;
+        card.bytes.textContent = entry.bundled ? 'В комплекте приложения' : `Файлы модели: ${size(entry.size)} · ${entry.license}`;
         card.bytes.title = entry.size ? `${entry.size.toLocaleString('ru-RU')} байт` : '';
         const checked = Math.min(entry.verified || 0, entry.size);
         card.progress.hidden = entry.installed || (!active && !resumable);
@@ -79,6 +79,7 @@
       for (const [id, card] of this.cards) if (!view.entries.some(entry => entry.id === id)) card.card.hidden = true;
       this.$('engine-status').textContent = `${view.selected?.engine === 'gigaam' ? 'GigaAM' : view.selected?.engine === 'nemotron' ? 'Nemotron' : 'Vosk'} · CPU · RU`;
       if (view.error) this.feedback(view.error, true);
+      else if (old?.error && this.$('catalog-feedback').textContent === old.error) this.feedback('');
       const completed = view.entries.find(entry => !entry.bundled && entry.installed && !old?.entries.some(previous => previous.id === entry.id && previous.installed));
       if (old && completed) { this.feedback(`${completed.name}: файлы скачаны и проверены. Можно назначить основной.`); this.changed?.(); }
     }

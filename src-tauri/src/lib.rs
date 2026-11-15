@@ -355,23 +355,18 @@ struct AudioLevelsView {
 }
 
 #[tauri::command]
-fn available_models(app: AppHandle, state: State<'_, Arc<AppRuntime>>) -> Vec<LocalModel> {
-    let mut local = models::models(&app);
-    for entry in state
+fn available_models(state: State<'_, Arc<AppRuntime>>) -> Vec<LocalModel> {
+    state
         .models
         .view()
         .entries
         .into_iter()
         .filter(|e| e.installed)
-    {
-        if !local.iter().any(|m| m.path == entry.path) {
-            local.push(LocalModel {
-                name: entry.name,
-                path: entry.path,
-            });
-        }
-    }
-    local
+        .map(|entry| LocalModel {
+            name: entry.name,
+            path: entry.path,
+        })
+        .collect()
 }
 
 #[tauri::command]
@@ -545,7 +540,6 @@ pub fn run() {
         .setup(|app| {
             let builtin = models::models(app.handle())
                 .into_iter()
-                .filter(|m| m.name == "vosk-model-small-ru-0.22")
                 .take(1)
                 .map(|m| catalog::Selection {
                     path: PathBuf::from(m.path),

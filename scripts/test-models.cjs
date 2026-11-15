@@ -32,10 +32,13 @@ test('catalog startup only reads local state and displays final model size', asy
   assert.match(app.card().bytes.textContent, /231,9 МБ/); assert.match(app.card().bytes.title, /231/);
   assert.equal(app.card().buttons.download.hidden, false); assert.equal(app.card().buttons.resume.hidden, true);
 });
-test('migrating an existing custom model never reports a new download', async () => {
+test('an unsupported old selection produces no custom card or download completion', async () => {
   const app = setup(); await app.controller.init();
-  const changed = app.update({ entries: [...app.view.entries, { id: 'custom', name: 'Custom Vosk', bundled: true, primary: true, installed: true, state: 'installed', size: 0, downloaded: 0 }] });
-  app.controller.render(changed); assert.equal(app.$('catalog-feedback').textContent, undefined);
+  const changed = app.update({ selected: { path: 'old-custom', engine: 'vosk' }, error: 'Доступны только модели из каталога' });
+  app.controller.render(changed); assert.equal(app.controller.cards.has('custom'), false);
+  assert.equal(app.$('catalog-feedback').textContent, changed.error);
+  app.controller.render(app.update({ selected: app.view.selected, error: null }));
+  assert.equal(app.$('catalog-feedback').textContent, '');
 });
 test('interrupted download is resumable after startup without starting a network request', async () => {
   const app = setup(); app.entry({ state: 'paused', downloaded: 45000000 }); await app.controller.init();
@@ -105,4 +108,17 @@ test('concurrent local refreshes share one request', async () => {
   const app = setup(); await app.controller.init(); const count = app.calls.length;
   await Promise.all([app.controller.load(), app.controller.load()]);
   assert.equal(app.calls.length, count + 1);
+});
+
+test('a delayed local snapshot cannot return older model choices after a completion event', async () => {
+  const app = setup(); await app.controller.init();
+  const stale = app.controller.view; let respond;
+  app.controller.call = () => new Promise(resolve => { respond = resolve; });
+  const loading = app.controller.load(); await Promise.resolve();
+  const installed = app.entry({ state: 'installed', installed: true, downloaded: 231898272 });
+  app.controller.render(installed);
+  respond(stale);
+  const snapshot = await loading;
+  assert.equal(snapshot, installed);
+  assert.equal(snapshot.entries.find(entry => entry.id === 'giga').installed, true);
 });

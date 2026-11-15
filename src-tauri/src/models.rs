@@ -19,40 +19,30 @@ fn candidate_roots(app: &AppHandle) -> Vec<PathBuf> {
             roots.push(parent.to_path_buf());
         }
     }
+    #[cfg(debug_assertions)]
     if let Ok(cwd) = std::env::current_dir() {
         roots.push(cwd.join("src-tauri"));
-    }
-    if let Ok(local) = app.path().app_local_data_dir() {
-        roots.push(local);
     }
     roots
 }
 
 pub fn models(app: &AppHandle) -> Vec<LocalModel> {
-    let mut out = Vec::<LocalModel>::new();
-    for root in candidate_roots(app) {
+    bundled_from_roots(&candidate_roots(app))
+}
+
+fn bundled_from_roots(roots: &[PathBuf]) -> Vec<LocalModel> {
+    for root in roots {
         for base in [root.join("resources/models"), root.join("models")] {
-            let Ok(entries) = std::fs::read_dir(base) else {
-                continue;
-            };
-            for entry in entries.flatten() {
-                let path = entry.path();
-                if !looks_like_model(&path) {
-                    continue;
-                }
-                let text = path.to_string_lossy().into_owned();
-                if out.iter().any(|m| m.path == text) {
-                    continue;
-                }
-                out.push(LocalModel {
-                    name: entry.file_name().to_string_lossy().into_owned(),
-                    path: text,
-                });
+            let path = base.join("vosk-model-small-ru-0.22");
+            if looks_like_model(&path) {
+                return vec![LocalModel {
+                    name: "Vosk Small RU".into(),
+                    path: path.to_string_lossy().into_owned(),
+                }];
             }
         }
     }
-    out.sort_by(|a, b| a.name.cmp(&b.name));
-    out
+    Vec::new()
 }
 
 pub fn looks_like_model(path: &Path) -> bool {
@@ -84,6 +74,25 @@ pub(crate) fn runtime_from_roots(roots: &[PathBuf], engine: &str) -> Result<Path
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn repeated_bundle_locations_produce_one_curated_vosk_and_ignore_other_folders() {
+        let root = std::env::temp_dir().join(format!("voice-bundled-paths-{}", std::process::id()));
+        assert!(!root.exists());
+        let roots = [root.join("installed"), root.join("development")];
+        for base in &roots {
+            for model in ["vosk-model-small-ru-0.22", "another-vosk"] {
+                for part in ["am", "conf"] {
+                    std::fs::create_dir_all(base.join("resources/models").join(model).join(part))
+                        .unwrap();
+                }
+            }
+        }
+        let found = bundled_from_roots(&roots);
+        assert_eq!(found.len(), 1);
+        assert_eq!(found[0].name, "Vosk Small RU");
+        assert!(Path::new(&found[0].path).starts_with(&roots[0]));
+        std::fs::remove_dir_all(root).unwrap();
+    }
     #[test]
     fn native_profile_is_found_in_installed_and_portable_layouts_without_vosk_dll() {
         let root = std::env::temp_dir().join(format!("voice-runtime-paths-{}", std::process::id()));

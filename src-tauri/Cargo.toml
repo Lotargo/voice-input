@@ -1,9 +1,10 @@
 [package]
 name = "voice-input"
-version = "0.4.1"
+version = "0.4.2"
 default-run = "voice-input"
 description = "Offline Russian voice dictation for Windows"
 authors = ["Lotargo"]
+license = "MIT"
 edition = "2021"
 rust-version = "1.90"
 

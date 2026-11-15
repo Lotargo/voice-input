@@ -257,6 +257,61 @@ fn response_ranges_and_curated_paths_are_checked() {
 }
 
 #[test]
+fn custom_vosk_is_rejected_and_legacy_choice_requires_explicit_catalog_selection() {
+    let temp = Temp::new();
+    let builtin = temp.0.join("bundled");
+    let custom = temp.0.join("custom");
+    for root in [&builtin, &custom] {
+        for part in ["am", "conf"] {
+            fs::create_dir_all(root.join(part)).unwrap();
+        }
+    }
+    let make = || {
+        Catalog::with_specs(
+            temp.0.join("models"),
+            temp.0.join("config/models.json"),
+            vec![Selection {
+                path: builtin.clone(),
+                engine: "vosk".into(),
+                name: "Vosk Small RU".into(),
+            }],
+            vec![],
+        )
+    };
+    let catalog = make();
+    assert!(catalog
+        .select(custom.clone())
+        .unwrap_err()
+        .contains("каталога"));
+    assert!(!catalog.settings_path.exists());
+    catalog.migrate_selection(custom.clone()).unwrap();
+    assert!(catalog.selection().is_err());
+    assert_eq!(catalog.view().entries.len(), 1);
+    assert!(!catalog.view().entries[0].primary);
+    drop(catalog);
+    let restored = make();
+    assert!(restored.selection().is_err());
+    assert!(restored.view().error.is_some());
+    assert!(custom.join("am").exists());
+    restored.select(builtin.clone()).unwrap();
+    assert_eq!(restored.selection().unwrap().path, builtin);
+    assert!(restored.view().error.is_none());
+    assert!(restored.view().entries[0].primary);
+    atomic_json(
+        &restored.settings_path,
+        &Selection {
+            path: fs::canonicalize(&builtin).unwrap(),
+            engine: "vosk".into(),
+            name: "Legacy alias".into(),
+        },
+    )
+    .unwrap();
+    let normalized = make();
+    assert!(normalized.view().entries[0].primary);
+    assert_eq!(normalized.selection().unwrap().path, builtin);
+}
+
+#[test]
 fn verification_is_visible_cancellable_and_resumes_without_network_after_restart() {
     let temp = Temp::new();
     let data = vec![9; 1024 * 1024];

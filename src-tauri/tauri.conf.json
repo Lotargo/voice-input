@@ -39,6 +39,7 @@
     "resources": [
       "resources/*.dll",
       "resources/Local-ASR-NOTICE.txt",
+      "resources/Voice-Input-LICENSE.txt",
       "resources/models/CPU-Execution.conf",
       "resources/models/vosk-model-small-ru-0.22/**/*",
       "resources/models/Speech-Denoiser-NOTICE.txt"

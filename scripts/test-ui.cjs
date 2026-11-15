@@ -73,7 +73,7 @@ async function openApp(commands = {}, clipboardWrite, options = {}) {
       core: { invoke: async (name, args) => {
         calls.push({ name, args });
         if (commands[name]) { const value = await commands[name](args); if (value !== undefined) return value; }
-        if (name === 'available_models') return [{ name: 'test', path: 'C:\\test' }];
+        if (name === 'model_catalog') return { version: 0, selection_saved: true, selected: { path: 'C:\\test', engine: 'vosk' }, entries: [{ id: 'bundled-0', name: 'Vosk Small RU', path: 'C:\\test', installed: true, bundled: true, primary: true, size: 0, downloaded: 0, state: 'installed' }] };
         if (name === 'recording_status') return { session: 0, recording: false, message: 'Ожидание' };
         if (name === 'update_info') return { version: '0.2.0', mode: 'portable', supported: true, last_result: null };
         if (name === 'input_settings' || name === 'set_input_settings') return { options: { device_id: args?.deviceId ?? null, device_name: null, denoise: args?.denoise ?? false }, devices: [{ id: 'wasapi:test', name: 'Микрофон по умолчанию', is_default: true }], name: 'Микрофон по умолчанию', available: true, error: null };
@@ -474,7 +474,7 @@ test('a startup shortcut conflict leaves dictation and settings usable', async (
   const app = await openApp({ hotkey_status: () => ({ shortcut: 'Ctrl+Alt+Space', default_shortcut: 'Ctrl+Alt+Space', active: false, error: 'Сочетание недоступно' }) });
   assert.match(app.element('shortcut-label').textContent, /недоступно/);
   assert.equal(app.element('hotkey-active').textContent, 'Не активно');
-  assert.equal(app.calls.some(call => call.name === 'select_model'), true);
+  assert.equal(app.calls.some(call => call.name === 'select_model'), false);
   await app.click('record');
   assert.equal(app.calls.some(call => call.name === 'begin_recording'), true);
 });
@@ -687,11 +687,11 @@ test('start and stop command replies cannot overwrite a completed session status
 test('model controls stay disabled for the entire recording session', async () => {
   const app = await openApp();
   app.emit('recording-status', { session: 1, recording: true, message: 'Запись' });
-  for (const id of ['model', 'refresh-models', 'custom-path', 'apply-path']) {
+  for (const id of ['model', 'refresh-models']) {
     assert.equal(app.element(id).disabled, true);
   }
   app.emit('recording-status', { session: 1, recording: false, message: 'Стоп' });
-  for (const id of ['model', 'refresh-models', 'custom-path', 'apply-path']) {
+  for (const id of ['model', 'refresh-models']) {
     assert.equal(app.element(id).disabled, false);
   }
 });

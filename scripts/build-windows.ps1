@@ -56,6 +56,7 @@ try {
     $portableModels = Join-Path $portable 'models'
     New-Item -ItemType Directory -Path $portableModels -Force | Out-Null
     Copy-Item -LiteralPath (Join-Path $resources 'Local-ASR-NOTICE.txt') -Destination $portableModels
+    Copy-Item -LiteralPath (Join-Path $resources 'Voice-Input-LICENSE.txt') -Destination $portableModels
     Copy-Item -LiteralPath (Join-Path $resources 'models/CPU-Execution.conf') -Destination $portableModels
     Copy-Item -LiteralPath (Join-Path $resources 'models/vosk-model-small-ru-0.22') -Destination $portableModels -Recurse
     Copy-Item -LiteralPath (Join-Path $resources 'models/Speech-Denoiser-NOTICE.txt') -Destination $portableModels

@@ -154,7 +154,7 @@ function status(message, isRecording = recording, error = false) {
   $('record').classList.toggle('active', recording);
   $('record').setAttribute('aria-pressed', String(recording));
   $('record-label').textContent = recording ? 'Закончить диктовку' : 'Начать диктовку';
-  for (const id of ['model', 'refresh-models', 'custom-path', 'apply-path']) $(id).disabled = recording || testingInput;
+  for (const id of ['model', 'refresh-models']) $(id).disabled = recording || testingInput;
   $('model-lock').hidden = !recording && !testingInput;
   captureControls();
   updateFooter();
@@ -305,25 +305,23 @@ async function loadModels() {
   if (catalog?.entries && !catalog.selection_saved && legacy) {
     catalog = await call('migrate_model_selection', { path: legacy }); modelCatalog.render(catalog);
   }
-  const available = await call('available_models');
+  const available = catalog?.entries?.filter(entry => entry.installed) || [];
   model.replaceChildren();
   if (!available.length) {
     model.add(new Option('Нет установленных моделей - загрузите из каталога', ''));
     return;
   }
   for (const entry of available) model.add(new Option(entry.name, entry.path));
-  const wanted = catalog?.selected?.path || localStorage.getItem('local-model');
+  const wanted = catalog?.selected?.path;
   if (wanted && available.some(x => x.path === wanted)) model.value = wanted;
   if (catalog?.entries && wanted && !available.some(x => x.path === wanted)) {
     model.add(new Option('Основная модель недоступна - выберите другую', wanted)); model.value = wanted;
   }
-  if (!catalog?.entries) await selectModel(model.value);
 }
 
 async function selectModel(path) {
   if (!path) return;
   await call('select_model', { path });
-  localStorage.setItem('local-model', path);
   if (modelCatalog.ready) await loadModels();
 }
 
@@ -572,16 +570,6 @@ $('record').addEventListener('click', async () => {
 });
 $('refresh-models').addEventListener('click', () => loadModels().catch(e => status(String(e), recording, true)));
 model.addEventListener('change', () => selectModel(model.value).catch(async e => { await loadModels(); status(String(e), recording, true); }));
-$('apply-path').addEventListener('click', async () => {
-  try {
-    const path = $('custom-path').value.trim();
-    await selectModel(path);
-    if (![...model.options].some(o => o.value === path)) model.add(new Option('Пользовательская модель', path));
-    model.value = path;
-    status('Локальная модель выбрана');
-  }
-  catch (e) { status(String(e), recording, true); }
-});
 let recordOptions = { enabled: false, silence_seconds: 3 };
 let recordOptionsBusy = false;
 function recordOptionControls() {

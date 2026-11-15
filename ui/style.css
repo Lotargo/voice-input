@@ -36,3 +36,6 @@
 .model-bundled{display:grid;grid-template-columns:1fr auto;align-items:center;gap:8px;padding:10px 13px}.model-bundled .model-card-heading{display:block}.model-bundled .model-state{display:block;margin-top:3px}.model-bundled .model-actions{margin:0}
 
 .compact-preview::-webkit-scrollbar{display:block;width:4px}.compact-preview::-webkit-scrollbar-thumb{border-radius:4px;background:#b397d869}
+
+/* Settings sections share the same first-label baseline and control height. */
+#panel-settings>section[role=tabpanel]{padding-top:4px}.hotkey-settings{padding-top:0}.update-settings{padding-top:0}#audio-settings .field-label,.hotkey-settings .field-label,.update-heading h2{font-size:12px;font-weight:500;line-height:18px;color:#d2c3e7;margin:0 0 8px}.input-device-row select,.input-device-row button,.hotkey-entry input,.hotkey-entry .secondary-button,.update-actions .secondary-button{height:36px;min-height:36px}

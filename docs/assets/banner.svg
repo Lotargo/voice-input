@@ -1,0 +1,38 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1440" height="420" viewBox="0 0 1440 420" role="img" aria-labelledby="title desc">
+  <title id="title">Voice Input — локальный голосовой ввод</title>
+  <desc id="desc">Русская диктовка для Windows. Распознавание на CPU, без облака и API-ключей.</desc>
+  <defs>
+    <linearGradient id="bg" x2="1" y2="1"><stop stop-color="#221c3b"/><stop offset=".6" stop-color="#121026"/><stop offset="1" stop-color="#241936"/></linearGradient>
+    <radialGradient id="halo"><stop stop-color="#a47fe7" stop-opacity=".24"/><stop offset="1" stop-color="#a47fe7" stop-opacity="0"/></radialGradient>
+    <linearGradient id="orb" x2=".8" y2="1"><stop stop-color="#ac94ee"/><stop offset=".5" stop-color="#6951aa"/><stop offset="1" stop-color="#9266cc"/></linearGradient>
+    <linearGradient id="wave"><stop stop-color="#a183de" stop-opacity="0"/><stop offset=".35" stop-color="#ae8dec" stop-opacity=".4"/><stop offset=".7" stop-color="#d6b6ff" stop-opacity=".85"/><stop offset="1" stop-color="#a183de" stop-opacity="0"/></linearGradient>
+    <clipPath id="clip"><rect width="1440" height="420" rx="24"/></clipPath>
+  </defs>
+  <g clip-path="url(#clip)">
+    <rect width="1440" height="420" fill="url(#bg)"/>
+    <ellipse cx="1122" cy="200" rx="410" ry="320" fill="url(#halo)"/>
+    <path d="M610 258C706 320 730 110 824 216S950 346 1026 228 1150 125 1232 220 1370 270 1480 192" fill="none" stroke="url(#wave)" stroke-width="2"/>
+    <path d="M620 224C708 166 758 330 830 242S956 122 1038 224 1178 306 1248 218 1360 194 1460 246" fill="none" stroke="url(#wave)" stroke-width="1.2" opacity=".45"/>
+    <path d="M690 253C766 285 798 160 870 212S960 318 1046 230 1140 190 1220 222 1340 286 1450 238" fill="none" stroke="url(#wave)" stroke-width="1" opacity=".35"/>
+    <g fill="none" stroke="#c29aff"><circle cx="1120" cy="206" r="128" opacity=".08"/><circle cx="1120" cy="206" r="111" opacity=".18"/><circle cx="1120" cy="206" r="93" opacity=".3"/></g>
+    <circle cx="1120" cy="206" r="81" fill="url(#orb)" stroke="#e4ccff" stroke-opacity=".7"/>
+    <g transform="translate(1078 162) scale(3.5)" fill="none" stroke="#f4e9ff" stroke-width="1.35" stroke-linecap="round" stroke-linejoin="round">
+      <rect x="9" y="2" width="6" height="13" rx="3"/>
+      <path d="M5 10v2a7 7 0 0 0 14 0v-2M12 19v3m-3 0h6"/>
+    </g>
+    <g font-family="Segoe UI, Arial, sans-serif">
+      <text x="76" y="94" fill="#baa5d9" font-size="16" font-weight="600" letter-spacing="2">ГОЛОСОВОЙ ВВОД ДЛЯ WINDOWS</text>
+      <text x="72" y="204" fill="#f4f0ff" font-size="88" font-weight="700">Voice Input</text>
+      <text x="76" y="254" fill="#c7badb" font-size="27">Диктуйте по-русски. Всё остаётся у вас.</text>
+      <g font-size="17" fill="#dfd1f2">
+        <rect x="76" y="306" width="132" height="40" rx="20" fill="#c29aff" fill-opacity=".08" stroke="#c29aff" stroke-opacity=".22"/>
+        <text x="142" y="332" text-anchor="middle">Офлайн STT</text>
+        <rect x="220" y="306" width="136" height="40" rx="20" fill="#c29aff" fill-opacity=".08" stroke="#c29aff" stroke-opacity=".22"/>
+        <text x="288" y="332" text-anchor="middle">Только CPU</text>
+        <rect x="368" y="306" width="180" height="40" rx="20" fill="#c29aff" fill-opacity=".08" stroke="#c29aff" stroke-opacity=".22"/>
+        <text x="458" y="332" text-anchor="middle">Без API-ключей</text>
+      </g>
+    </g>
+    <rect x=".5" y=".5" width="1439" height="419" rx="23.5" fill="none" stroke="#c29aff" stroke-opacity=".17"/>
+  </g>
+</svg>

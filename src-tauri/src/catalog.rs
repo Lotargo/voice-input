@@ -126,6 +126,16 @@ fn file_size(path: &Path) -> u64 {
         0
     }
 }
+fn same_path(a: &Path, b: &Path) -> bool {
+    a == b
+        || fs::canonicalize(a)
+            .ok()
+            .zip(fs::canonicalize(b).ok())
+            .is_some_and(|(a, b)| a == b)
+}
+
+const CATALOG_ONLY: &str =
+    "Доступны только модели из каталога. Выберите основную модель на вкладке «Модель».";
 fn sha256(
     path: &Path,
     signal: &AtomicU8,
@@ -163,7 +173,7 @@ impl Catalog {
         builtin: Vec<Selection>,
         specs: Vec<ModelSpec>,
     ) -> Self {
-        let (selected, error) = match fs::read(&settings_path) {
+        let (mut selected, error) = match fs::read(&settings_path) {
             Ok(bytes) => match serde_json::from_slice::<Selection>(&bytes) {
                 Ok(value) => (Some(value), None),
                 Err(e) => (
@@ -179,7 +189,18 @@ impl Catalog {
                 Some(format!("Настройки основной модели недоступны: {e}")),
             ),
         };
-        Self {
+        if let Some(known) = selected
+            .as_ref()
+            .filter(|selection| selection.engine == "vosk")
+            .and_then(|selection| {
+                builtin
+                    .iter()
+                    .find(|model| same_path(&model.path, &selection.path))
+            })
+        {
+            selected = Some(known.clone());
+        }
+        let catalog = Self {
             root,
             settings_path,
             specs,
@@ -188,7 +209,24 @@ impl Catalog {
             load_error: Mutex::new(error),
             transfers: Mutex::new(Transfers::default()),
             version: AtomicU64::new(0),
+        };
+        let selected = catalog.selected.lock().unwrap().clone();
+        if selected
+            .as_ref()
+            .is_some_and(|value| !catalog.known_selection(value))
+        {
+            *catalog.load_error.lock().unwrap() = Some(CATALOG_ONLY.into());
         }
+        catalog
+    }
+    fn known_selection(&self, selection: &Selection) -> bool {
+        self.builtin
+            .iter()
+            .any(|model| selection.engine == "vosk" && same_path(&model.path, &selection.path))
+            || self.specs.iter().any(|spec| {
+                selection.engine == spec.engine
+                    && same_path(&self.root.join(&spec.id), &selection.path)
+            })
     }
     fn spec(&self, id: &str) -> Result<ModelSpec, String> {
         self.specs
@@ -348,33 +386,6 @@ impl Catalog {
                 path: self.root.join(&spec.id).to_string_lossy().into_owned(),
             });
         }
-        // A custom Vosk path remains available and is never owned/deleted by the catalog.
-        if let Some(model) = &selected {
-            if !entries.iter().any(|e| Path::new(&e.path) == model.path) {
-                entries.push(Entry {
-                    id: "custom".into(),
-                    name: model.name.clone(),
-                    description: "Пользовательская папка. Управление файлами остаётся за вами."
-                        .into(),
-                    license: String::new(),
-                    engine: model.engine.clone(),
-                    size: 0,
-                    downloaded: 0,
-                    verified: 0,
-                    state: if model.path.exists() {
-                        "installed"
-                    } else {
-                        "missing"
-                    }
-                    .into(),
-                    message: String::new(),
-                    installed: model.path.exists(),
-                    bundled: true,
-                    primary: true,
-                    path: model.path.to_string_lossy().into_owned(),
-                });
-            }
-        }
         View {
             version: self.version.fetch_add(1, Ordering::Relaxed),
             entries,
@@ -394,6 +405,9 @@ impl Catalog {
             .unwrap()
             .clone()
             .ok_or("Выберите основную модель в каталоге")?;
+        if !self.known_selection(&selected) {
+            return Err(CATALOG_ONLY.into());
+        }
         if selected.engine == "vosk" {
             if !crate::models::looks_like_model(&selected.path) {
                 return Err(
@@ -423,31 +437,25 @@ impl Catalog {
         {
             return Err("Дождитесь завершения проверки модели".into());
         }
-        let selection =
-            if let Some(spec) = self.specs.iter().find(|s| self.root.join(&s.id) == path) {
-                if !self.installed(spec) {
-                    return Err("Сначала завершите загрузку модели".into());
-                }
-                Selection {
-                    path,
-                    engine: spec.engine.clone(),
-                    name: spec.name.clone(),
-                }
-            } else {
-                if !crate::models::looks_like_model(&path) {
-                    return Err("Папка Vosk должна содержать am/ и conf/".into());
-                }
-                Selection {
-                    name: self
-                        .builtin
-                        .iter()
-                        .find(|s| s.path == path)
-                        .map(|s| s.name.clone())
-                        .unwrap_or_else(|| "Пользовательская Vosk".into()),
-                    path,
-                    engine: "vosk".into(),
-                }
-            };
+        let selection = if let Some(spec) =
+            self.specs.iter().find(|s| self.root.join(&s.id) == path)
+        {
+            if !self.installed(spec) {
+                return Err("Сначала завершите загрузку модели".into());
+            }
+            Selection {
+                path,
+                engine: spec.engine.clone(),
+                name: spec.name.clone(),
+            }
+        } else if let Some(model) = self.builtin.iter().find(|s| same_path(&s.path, &path)) {
+            if !crate::models::looks_like_model(&model.path) {
+                return Err("Встроенная модель недоступна. Восстановите файлы приложения.".into());
+            }
+            model.clone()
+        } else {
+            return Err(CATALOG_ONLY.into());
+        };
         let mut selected = self.selected.lock().unwrap();
         atomic_json(&self.settings_path, &selection)?;
         *selected = Some(selection);
@@ -458,19 +466,26 @@ impl Catalog {
         if self.settings_path.exists() || !path.is_absolute() {
             return Ok(());
         }
+        if self
+            .builtin
+            .iter()
+            .any(|model| same_path(&model.path, &path))
+            || self
+                .specs
+                .iter()
+                .any(|spec| self.root.join(&spec.id) == path)
+        {
+            return self.select(path);
+        }
         let mut selected = self.selected.lock().unwrap();
         let selection = Selection {
-            name: self
-                .builtin
-                .iter()
-                .find(|s| s.path == path)
-                .map(|s| s.name.clone())
-                .unwrap_or_else(|| "Пользовательская Vosk".into()),
+            name: "Модель вне каталога".into(),
             path,
             engine: "vosk".into(),
         };
         atomic_json(&self.settings_path, &selection)?;
         *selected = Some(selection);
+        *self.load_error.lock().unwrap() = Some(CATALOG_ONLY.into());
         Ok(())
     }
     pub fn busy(&self) -> bool {

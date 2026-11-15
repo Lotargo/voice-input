@@ -6,6 +6,7 @@
 /dist/
 # Native runtime and local model weights are downloaded separately
 /src-tauri/resources/*.dll
+/src-tauri/resources/Voice-Input-LICENSE.txt
 /src-tauri/resources/models/*
 !/src-tauri/resources/models/.gitkeep
 !/src-tauri/resources/models/Speech-Denoiser-NOTICE.txt
