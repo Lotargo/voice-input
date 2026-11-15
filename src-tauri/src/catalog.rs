@@ -47,6 +47,57 @@ pub struct Selection {
     pub engine: String,
     pub name: String,
 }
+// Keep the legacy fields readable by older versions, but resolve the current path
+// from a catalog identity so removing/moving an application copy cannot break it.
+const BUNDLED_VOSK_ID: &str = "vosk-model-small-ru-0.22";
+#[derive(Deserialize, Serialize)]
+struct SavedSelection {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    model_id: Option<String>,
+    #[serde(flatten)]
+    selection: Selection,
+}
+
+fn restore_selection(
+    saved: SavedSelection,
+    root: &Path,
+    builtin: &[Selection],
+    specs: &[ModelSpec],
+) -> Result<Selection, String> {
+    let old = saved.selection;
+    if let Some(id) = saved.model_id {
+        return if id == BUNDLED_VOSK_ID {
+            builtin.first().cloned()
+        } else {
+            specs.iter().find(|spec| spec.id == id).map(|spec| Selection {
+                path: root.join(&spec.id),
+                engine: spec.engine.clone(),
+                name: spec.name.clone(),
+            })
+        }
+        .ok_or_else(|| "Основная модель недоступна в каталоге. Восстановите файлы приложения или выберите модель заново.".into());
+    }
+    if old.engine == "vosk" {
+        if let Some(known) = builtin
+            .iter()
+            .find(|model| same_path(&model.path, &old.path))
+        {
+            return Ok(known.clone());
+        }
+        // Old releases saved the official bundled name plus its physical path.
+        // Do not reinterpret a legacy custom/blocked model as the bundled one.
+        if matches!(old.name.as_str(), "Vosk Small RU" | BUNDLED_VOSK_ID)
+            && old
+                .path
+                .ends_with(Path::new("models").join(BUNDLED_VOSK_ID))
+        {
+            if let Some(known) = builtin.first() {
+                return Ok(known.clone());
+            }
+        }
+    }
+    Ok(old)
+}
 #[derive(Clone, Serialize)]
 pub struct Entry {
     pub id: String,
@@ -173,9 +224,12 @@ impl Catalog {
         builtin: Vec<Selection>,
         specs: Vec<ModelSpec>,
     ) -> Self {
-        let (mut selected, error) = match fs::read(&settings_path) {
-            Ok(bytes) => match serde_json::from_slice::<Selection>(&bytes) {
-                Ok(value) => (Some(value), None),
+        let (selected, error) = match fs::read(&settings_path) {
+            Ok(bytes) => match serde_json::from_slice::<SavedSelection>(&bytes) {
+                Ok(value) => match restore_selection(value, &root, &builtin, &specs) {
+                    Ok(selection) => (Some(selection), None),
+                    Err(error) => (None, Some(error)),
+                },
                 Err(e) => (
                     None,
                     Some(format!(
@@ -189,17 +243,6 @@ impl Catalog {
                 Some(format!("Настройки основной модели недоступны: {e}")),
             ),
         };
-        if let Some(known) = selected
-            .as_ref()
-            .filter(|selection| selection.engine == "vosk")
-            .and_then(|selection| {
-                builtin
-                    .iter()
-                    .find(|model| same_path(&model.path, &selection.path))
-            })
-        {
-            selected = Some(known.clone());
-        }
         let catalog = Self {
             root,
             settings_path,
@@ -457,7 +500,19 @@ impl Catalog {
             return Err(CATALOG_ONLY.into());
         };
         let mut selected = self.selected.lock().unwrap();
-        atomic_json(&self.settings_path, &selection)?;
+        let model_id = self
+            .specs
+            .iter()
+            .find(|spec| self.root.join(&spec.id) == selection.path)
+            .map(|spec| spec.id.clone())
+            .unwrap_or_else(|| BUNDLED_VOSK_ID.into());
+        atomic_json(
+            &self.settings_path,
+            &SavedSelection {
+                model_id: Some(model_id),
+                selection: selection.clone(),
+            },
+        )?;
         *selected = Some(selection);
         *self.load_error.lock().unwrap() = None;
         Ok(())

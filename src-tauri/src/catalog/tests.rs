@@ -312,6 +312,176 @@ fn custom_vosk_is_rejected_and_legacy_choice_requires_explicit_catalog_selection
 }
 
 #[test]
+fn shared_profile_survives_uninstall_and_portable_reuses_models_and_partial_downloads() {
+    let temp = Temp::new();
+    let profile = crate::storage::UserStorage::from_base(
+        &temp.0.join("AppData/Roaming"),
+        &temp.0.join("AppData/Local"),
+    );
+    let model = spec("http://127.0.0.1:1/no-network".into(), &[1, 2, 3, 4]);
+    let mut pending = model.clone();
+    pending.id = "pending".into();
+    let builtin = |directory: &str| {
+        let path = temp.0.join(directory).join("models").join(BUNDLED_VOSK_ID);
+        for part in ["am", "conf"] {
+            fs::create_dir_all(path.join(part)).unwrap();
+        }
+        vec![Selection {
+            path,
+            engine: "vosk".into(),
+            name: "Vosk Small RU".into(),
+        }]
+    };
+    let make = |bundled| {
+        Catalog::with_specs(
+            profile.models(),
+            profile.config.join("models.json"),
+            bundled,
+            vec![model.clone(), pending.clone()],
+        )
+    };
+    let installed = make(builtin("installed"));
+    fs::create_dir_all(installed.stage(&model.id)).unwrap();
+    fs::write(
+        installed.stage(&model.id).join("encoder.onnx.part"),
+        [1, 2, 3, 4],
+    )
+    .unwrap();
+    installed
+        .download(&model, &AtomicU8::new(0), &quiet())
+        .unwrap();
+    installed.select(profile.models().join(&model.id)).unwrap();
+    fs::create_dir_all(installed.stage(&pending.id)).unwrap();
+    let partial = installed.stage(&pending.id).join("encoder.onnx.part");
+    fs::write(&partial, [1, 2]).unwrap();
+    for file in ["audio.json", "hotkey.json"] {
+        fs::write(profile.config.join(file), b"retained settings").unwrap();
+    }
+    drop(installed);
+    // Model the uninstaller's Keep choice: remove only this isolated app folder.
+    fs::remove_dir_all(temp.0.join("installed")).unwrap();
+    let portable = make(builtin("portable"));
+    assert!(portable.installed(&model));
+    assert_eq!(
+        portable.selection().unwrap().path,
+        profile.models().join(&model.id)
+    );
+    assert!(portable
+        .view()
+        .entries
+        .iter()
+        .any(|entry| entry.id == model.id && entry.primary));
+    let entry = portable
+        .view()
+        .entries
+        .into_iter()
+        .find(|entry| entry.id == pending.id)
+        .unwrap();
+    assert_eq!(entry.state, "paused");
+    assert_eq!(entry.downloaded, 2);
+    assert_eq!(fs::read(partial).unwrap(), [1, 2]);
+    for file in ["audio.json", "hotkey.json"] {
+        assert_eq!(
+            fs::read(profile.config.join(file)).unwrap(),
+            b"retained settings"
+        );
+    }
+    let saved = fs::read(profile.config.join("models.json")).unwrap();
+    // Older release readers can still read the path/engine/name fields.
+    assert_eq!(
+        serde_json::from_slice::<Selection>(&saved).unwrap().engine,
+        "gigaam"
+    );
+    assert_eq!(
+        serde_json::from_slice::<SavedSelection>(&saved)
+            .unwrap()
+            .model_id
+            .as_deref(),
+        Some("test")
+    );
+}
+
+#[test]
+fn bundled_primary_uses_catalog_identity_after_application_folder_is_removed() {
+    let temp = Temp::new();
+    let installed = temp.0.join("installed/models").join(BUNDLED_VOSK_ID);
+    let portable = temp.0.join("portable/models").join(BUNDLED_VOSK_ID);
+    for path in [&installed, &portable] {
+        for part in ["am", "conf"] {
+            fs::create_dir_all(path.join(part)).unwrap();
+        }
+    }
+    let make = |path: &Path| {
+        Catalog::with_specs(
+            temp.0.join("shared/models"),
+            temp.0.join("shared/config/models.json"),
+            vec![Selection {
+                path: path.into(),
+                engine: "vosk".into(),
+                name: "Vosk Small RU".into(),
+            }],
+            vec![],
+        )
+    };
+    make(&installed).select(installed.clone()).unwrap();
+    fs::remove_dir_all(temp.0.join("installed")).unwrap();
+    let moved = make(&portable);
+    assert_eq!(moved.selection().unwrap().path, portable);
+    assert!(moved.view().entries[0].primary);
+    // An unknown saved identity must never choose the default model silently.
+    atomic_json(
+        &moved.settings_path,
+        &SavedSelection {
+            model_id: Some("unknown-model".into()),
+            selection: moved.selection().unwrap(),
+        },
+    )
+    .unwrap();
+    let unavailable = make(&portable);
+    assert!(unavailable.selection().is_err());
+    assert!(unavailable.view().error.is_some());
+    assert!(!unavailable.view().entries[0].primary);
+}
+
+#[test]
+fn legacy_bundled_selection_rebinds_but_custom_name_is_not_treated_as_bundled() {
+    let temp = Temp::new();
+    let current = temp.0.join("portable/models").join(BUNDLED_VOSK_ID);
+    for part in ["am", "conf"] {
+        fs::create_dir_all(current.join(part)).unwrap();
+    }
+    let settings = temp.0.join("config/models.json");
+    let make = || {
+        Catalog::with_specs(
+            temp.0.join("shared/models"),
+            settings.clone(),
+            vec![Selection {
+                path: current.clone(),
+                engine: "vosk".into(),
+                name: "Vosk Small RU".into(),
+            }],
+            vec![],
+        )
+    };
+    let mut legacy = Selection {
+        path: temp
+            .0
+            .join("removed-installed/resources/models")
+            .join(BUNDLED_VOSK_ID),
+        engine: "vosk".into(),
+        name: "Vosk Small RU".into(),
+    };
+    atomic_json(&settings, &legacy).unwrap();
+    assert_eq!(make().selection().unwrap().path, current);
+    legacy.name = "Пользовательская Vosk".into();
+    atomic_json(&settings, &legacy).unwrap();
+    let blocked = make();
+    assert!(blocked.selection().is_err());
+    assert_eq!(blocked.view().selected.unwrap().path, legacy.path);
+    assert!(current.join("am").exists());
+}
+
+#[test]
 fn verification_is_visible_cancellable_and_resumes_without_network_after_restart() {
     let temp = Temp::new();
     let data = vec![9; 1024 * 1024];

@@ -5,7 +5,7 @@
     StrCpy $DeleteAppDataCheckboxState 0
   ${Else}
     IfSilent voice_keep_data
-    MessageBox MB_YESNO|MB_ICONQUESTION|MB_DEFBUTTON1 "Сохранить скачанные модели, незавершённые загрузки и настройки Voice Input?$\r$\n$\r$\nДа - сохранить для следующей установки.$\r$\nНет - удалить вместе с приложением." IDYES voice_keep_data IDNO voice_remove_data
+    MessageBox MB_YESNO|MB_ICONQUESTION|MB_DEFBUTTON1 "Сохранить скачанные модели, незавершённые загрузки и настройки Voice Input?$\r$\n$\r$\nДа - сохранить для следующей установки или portable-версии.$\r$\nНет - удалить общие данные всех копий Voice Input этого пользователя." IDYES voice_keep_data IDNO voice_remove_data
     voice_remove_data:
       StrCpy $DeleteAppDataCheckboxState 1
       Goto voice_data_choice_done

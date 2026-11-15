@@ -12,6 +12,7 @@ mod models;
 mod native_runtime;
 mod recognizers;
 mod records;
+mod storage;
 mod updates;
 mod vosk;
 
@@ -538,6 +539,7 @@ pub fn run() {
         .plugin(tauri_plugin_updater::Builder::new().build())
         .manage(updates::Updates::default())
         .setup(|app| {
+            let storage = storage::UserStorage::resolve(app.handle())?;
             let builtin = models::models(app.handle())
                 .into_iter()
                 .take(1)
@@ -548,26 +550,20 @@ pub fn run() {
                 })
                 .collect();
             let model_catalog = Arc::new(catalog::Catalog::load(
-                app.path().app_local_data_dir()?.join("models"),
-                app.path().app_config_dir()?.join("models.json"),
+                storage.models(),
+                storage.config.join("models.json"),
                 builtin,
             ));
             let runtime = Arc::new(AppRuntime::new(
-                app.path()
-                    .app_config_dir()
-                    .map(|p| p.join("audio.json"))
-                    .map_err(|e| e.to_string()),
+                Ok(storage.config.join("audio.json")),
                 model_catalog,
             ));
             runtime.delivery.clone().spawn_monitor(app.handle().clone());
             app.manage(runtime);
 
-            let hotkeys = Arc::new(hotkey::Hotkeys::load(
-                app.path()
-                    .app_config_dir()
-                    .map(|directory| directory.join("hotkey.json"))
-                    .map_err(|error| error.to_string()),
-            ));
+            let hotkeys = Arc::new(hotkey::Hotkeys::load(Ok(storage
+                .config
+                .join("hotkey.json"))));
             app.manage(hotkeys.clone());
             app.handle().plugin(
                 tauri_plugin_global_shortcut::Builder::new()

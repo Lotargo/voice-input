@@ -1,5 +1,6 @@
 //! Portable updates use the signed application itself as a short-lived helper.
 //! Only files present in the package are replaced; failures restore the originals.
+use crate::storage::APP_ID;
 use base64::{engine::general_purpose::STANDARD, Engine};
 use minisign_verify::{PublicKey, Signature};
 use serde::{Deserialize, Serialize};
@@ -25,7 +26,6 @@ use windows::{
     },
 };
 
-const APP_ID: &str = "dev.lotargo.voiceinput";
 const HELPER_ARG: &str = "--apply-portable-update";
 const MAX_PACKAGE: u64 = 512 * 1024 * 1024;
 const MAX_EXPANDED: u64 = 1024 * 1024 * 1024;
