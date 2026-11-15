@@ -29,6 +29,7 @@ async function openApp(commands = {}, clipboardWrite, options = {}) {
       this.handlers = new Map();
       this.attributes = new Map();
       this.style = {};
+      this.scrollTop = 0; this.scrollHeight = 0; this.clientHeight = 0;
       this.classList = { toggle() {} };
     }
     addEventListener(name, callback) { this.handlers.set(name, callback); }
@@ -84,7 +85,7 @@ async function openApp(commands = {}, clipboardWrite, options = {}) {
           const record = nativeRecords.current.id === args.recordId ? nativeRecords.current : nativeRecords.history.find(entry => entry.id === args.recordId);
           if (!record || record.generation !== args.generation) throw new Error('Запись изменилась');
           record.text = args.text;
-          for (const part of record.fragments) if (!args.baseIds.includes(part.id)) record.text += (record.text ? ' ' : '') + part.text;
+          for (const part of record.fragments) if (!args.baseIds.includes(part.id)) record.text += (record.text && !record.text.endsWith('\n') ? '\n' : '') + part.text;
           return clone(record);
         }
         if (name === 'change_record') {
@@ -106,6 +107,7 @@ async function openApp(commands = {}, clipboardWrite, options = {}) {
   vm.runInContext(readFileSync(join(__dirname, '../ui/records.js'), 'utf8'), sandbox);
   vm.runInContext(readFileSync(join(__dirname, '../ui/updates.js'), 'utf8'), sandbox);
   vm.runInContext(readFileSync(join(__dirname, '../ui/audio.js'), 'utf8'), sandbox);
+  vm.runInContext(readFileSync(join(__dirname, '../ui/models.js'), 'utf8'), sandbox);
   vm.runInContext(readFileSync(join(__dirname, '../ui/app.js'), 'utf8'), sandbox);
   await new Promise(setImmediate);
   return {
@@ -130,7 +132,7 @@ async function openApp(commands = {}, clipboardWrite, options = {}) {
       if (name === 'record-changed') nativeRecords = clone(payload);
       if (name === 'transcription-final' && (!payload.record_id || payload.record_id === nativeRecords.current.id) && (payload.generation ?? nativeRecords.current.generation) === nativeRecords.current.generation) {
         if (!payload.id || !nativeRecords.current.fragments.some(part => part.id === payload.id)) {
-          nativeRecords.current.text += (nativeRecords.current.text ? ' ' : '') + payload.text.trim();
+          nativeRecords.current.text += (nativeRecords.current.text && !nativeRecords.current.text.endsWith('\n') ? '\n' : '') + payload.text.trim();
           if (payload.id) nativeRecords.current.fragments.push({ id: payload.id, text: payload.text.trim() });
         }
       }
@@ -297,16 +299,16 @@ test('update progress is bounded and a repeated install cannot launch a second r
   complete(); await installing;
 });
 
-test('pauses keep the full current record in compact preview and the editor', async () => {
+test('pauses start a new line within the same record in compact preview and the editor', async () => {
   const app = await openApp();
   app.emit('recording-status', { session: 1, recording: true, message: 'Запись' });
   app.emit('transcription-final', { session: 1, id: '1:1', record_id: 1, generation: 0, version: 0, text: 'первая часть' });
   app.emit('transcription-partial', { session: 1, record_id: 1, generation: 0, version: 0, text: '' });
   app.step(10000);
   app.emit('transcription-partial', { session: 1, record_id: 1, generation: 0, version: 0, text: 'после паузы' });
-  assert.equal(app.element('compact-preview').textContent, 'первая часть после паузы');
+  assert.equal(app.element('compact-preview').textContent, 'первая часть\nпосле паузы');
   app.emit('transcription-final', { session: 1, id: '1:2', record_id: 1, generation: 0, version: 0, text: 'после паузы' });
-  assert.equal(app.element('transcribed').value, 'первая часть после паузы');
+  assert.equal(app.element('transcribed').value, 'первая часть\nпосле паузы');
   assert.equal(app.element('record-number').textContent, 'Запись 1');
   assert.equal(app.calls.some(call => call.name === 'change_record'), false);
 });
@@ -347,22 +349,22 @@ test('a stale native snapshot cannot erase final segments received after it was 
   app.emit('record-changed', { version: 0, current: first, history: [] });
   app.emit('transcription-final', { session: 1, id: '1:2', record_id: 1, generation: 0, version: 0, text: 'вторая' });
   app.emit('record-changed', { version: 0, current: first, history: [] });
-  assert.equal(app.element('transcribed').value, 'первая вторая');
+  assert.equal(app.element('transcribed').value, 'первая\nвторая');
 });
 
 test('queue groups endpoint fragments as one record without losing segment ownership', async () => {
   const app = await openApp();
   app.emit('delivery-status', { pending: [
     { id: '1:1', record_id: 1, generation: 0, text: 'первая' },
-    { id: '1:2', record_id: 1, generation: 0, text: ' вторая' },
+    { id: '1:2', record_id: 1, generation: 0, text: '\nвторая' },
   ], uncertain: [], last_message: '' });
   assert.equal(app.element('queue-badge').textContent, '1');
   assert.equal(app.element('queue-items').children.length, 1);
   const card = app.element('queue-items').children[0];
-  assert.equal(card.children[1].textContent, 'первая вторая');
+  assert.equal(card.children[1].textContent, 'первая\nвторая');
   await card.children[2].children[0].handlers.get('click')();
   assert.deepEqual(Array.from(app.calls.filter(call => call.name === 'take_pending').at(-1).args.ids), ['1:1', '1:2']);
-  assert.deepEqual(app.clipboard, ['первая вторая']);
+  assert.deepEqual(app.clipboard, ['первая\nвторая']);
 });
 
 test('automatic split settings default to manual mode and validate 1 through 60 seconds', async () => {
@@ -486,7 +488,7 @@ test('a second hotkey session appends to the retained transcript', async () => {
   app.emit('transcription-partial', { session: 2, text: 'вторая' });
   assert.equal(app.element('partial').textContent, 'вторая');
   app.emit('transcription-final', { session: 2, text: 'вторая фраза' });
-  assert.equal(app.element('transcribed').value, 'первая фраза вторая фраза');
+  assert.equal(app.element('transcribed').value, 'первая фраза\nвторая фраза');
 });
 
 test('late events from an earlier session cannot overwrite the active session', async () => {
@@ -507,7 +509,7 @@ test('identical final chunks with distinct segments remain in the preview', asyn
   app.emit('recording-status', { session: 1, recording: true, message: 'Запись' });
   app.emit('transcription-final', { session: 1, id: '1:1', text: 'да' });
   app.emit('transcription-final', { session: 1, id: '1:2', text: 'да' });
-  assert.equal(app.element('transcribed').value, 'да да');
+  assert.equal(app.element('transcribed').value, 'да\nда');
 });
 
 test('partial hypotheses stay in the preview without delivery commands', async () => {
@@ -532,7 +534,7 @@ test('manual corrections survive later dictation and take pending originals out 
   assert.equal(app.element('copy-transcript').disabled, true);
   app.emit('transcription-final', { session: 2, id: '2:1', text: 'продолжение' });
   app.emit('recording-status', { session: 2, recording: false, message: 'Стоп' });
-  assert.equal(app.element('transcribed').value, 'Ошибка исправлена. продолжение');
+  assert.equal(app.element('transcribed').value, 'Ошибка исправлена.\nпродолжение');
   assert.equal(app.element('transcribed').readOnly, false);
   assert.deepEqual(app.storageWrites.filter(([key]) => /transcript|draft/.test(key)), []);
 });
@@ -586,6 +588,57 @@ test('Clear requests the current record generation and never changes the clipboa
   assert.equal(clear.args.recordId, 1);
   assert.equal(clear.args.generation, 0);
   assert.equal(clear.args.clear, true);
+});
+
+test('editor Clear stays enabled while recording, discards partials and keeps the microphone running', async () => {
+  let release;
+  const app = await openApp({ change_record: () => new Promise(resolve => { release = resolve; }) });
+  app.emit('recording-status', { session: 1, recording: true, message: 'Запись' });
+  // Even an unfinished phrase can be discarded before the first final result.
+  app.emit('transcription-partial', { session: 1, record_id: 1, generation: 0, version: 0, text: 'передумал' });
+  assert.equal(app.element('clear-transcript').disabled, false);
+  const clearing = app.click('clear-transcript');
+  await new Promise(setImmediate);
+  assert.equal(app.element('clear-transcript').disabled, true);
+  assert.equal(app.element('restart-record').disabled, true);
+  assert.equal(app.element('transcribed').readOnly, true);
+  const cleared = { version: 1, current: { id: 1, generation: 1, text: '', partial: '', fragments: [] }, history: [] };
+  app.emit('record-changed', cleared);
+  app.emit('transcription-partial', { session: 1, record_id: 1, generation: 0, version: 0, text: 'старое' });
+  app.emit('transcription-final', { session: 1, id: '1:1', record_id: 1, generation: 0, version: 0, text: 'старый хвост' });
+  assert.equal(app.element('transcribed').value, '');
+  assert.equal(app.element('partial').textContent, '');
+  app.emit('transcription-final', { session: 1, id: '1:2', record_id: 1, generation: 1, version: 1, text: 'новая мысль' });
+  release(cleared);
+  await clearing;
+  assert.equal(app.element('transcribed').value, 'новая мысль');
+  assert.equal(app.element('clear-transcript').disabled, false);
+  assert.equal(app.element('copy-transcript').disabled, true);
+  assert.equal(app.element('record').getAttribute('aria-pressed'), 'true');
+  assert.equal(app.calls.some(call => ['begin_recording', 'end_recording', 'discard_pending'].includes(call.name)), false);
+  assert.deepEqual(app.clipboard, []);
+});
+
+test('failed editor Clear leaves recording and text available for an explicit retry', async () => {
+  const app = await openApp({ change_record: () => { throw new Error('IPC failed'); } });
+  app.emit('recording-status', { session: 1, recording: true, message: 'Запись' });
+  app.emit('transcription-final', { session: 1, id: '1:1', text: 'сохранить' });
+  await app.click('clear-transcript');
+  assert.equal(app.element('transcribed').value, 'сохранить');
+  assert.equal(app.element('clear-transcript').disabled, false);
+  assert.equal(app.element('record').getAttribute('aria-pressed'), 'true');
+  assert.match(app.element('transcript-feedback').textContent, /IPC failed/);
+  assert.deepEqual(app.clipboard, []);
+});
+
+test('manual line breaks survive snapshots and resumed phrases without empty extra lines', async () => {
+  const app = await openApp();
+  app.emit('transcription-final', { session: 1, id: '1:1', text: 'я тут подумал' });
+  await app.input('Я тут подумал\n');
+  app.emit('recording-status', { session: 2, recording: true, message: 'Запись' });
+  app.emit('transcription-final', { session: 2, id: '2:1', text: 'надо бы сходить прогуляться' });
+  await app.click('new-record');
+  assert.equal(app.element('history-items').children[0].children[1].textContent, 'Я тут подумал\nнадо бы сходить прогуляться');
 });
 
 test('a delayed Clear cannot erase a newer recording', async () => {
@@ -658,7 +711,7 @@ test('switching tabs preserves the corrected draft and recording state', async (
   assert.equal(app.element('transcribed').value, 'Исправленный текст');
   assert.equal(app.element('transcribed').readOnly, true);
   assert.equal(app.element('record').getAttribute('aria-pressed'), 'true');
-  assert.ok(app.calls.slice(before).every(call => call.name === 'input_settings'));
+  assert.ok(app.calls.slice(before).every(call => ['input_settings', 'model_catalog'].includes(call.name)));
 });
 
 test('tabs support arrow keys, Home and End with one active tab stop', async () => {
@@ -715,6 +768,31 @@ test('compact dictation does not require opening the editor or taking over deliv
   assert.equal(app.calls.length, before);
   assert.equal(app.calls.some(call => call.name === 'take_pending'), false);
   assert.deepEqual(app.clipboard, []);
+});
+
+test('compact preview follows new text and retains every line without claiming pending delivery', async () => {
+  const app = await openApp(); const preview = app.element('compact-preview');
+  preview.scrollHeight = 300; preview.clientHeight = 58;
+  const before = app.calls.length;
+  for (let segment = 1; segment <= 6; segment++) app.emit('transcription-final', { session: 1, id: `1:${segment}`, text: `строка ${segment}` });
+  assert.equal(preview.scrollTop, 300);
+  assert.equal(preview.textContent, 'строка 1\nстрока 2\nстрока 3\nстрока 4\nстрока 5\nстрока 6');
+  assert.equal(app.element('transcript-editor').hidden, true);
+  assert.equal(app.calls.slice(before).some(call => ['claim_pending', 'take_pending', 'copy_pending'].includes(call.name)), false);
+});
+
+test('reading earlier compact text holds the scroll position until returning to the bottom', async () => {
+  const app = await openApp(); const preview = app.element('compact-preview');
+  preview.scrollHeight = 300; preview.clientHeight = 58;
+  app.emit('transcription-final', { session: 1, id: '1:1', text: 'начало' });
+  preview.scrollTop = 40; preview.handlers.get('scroll')();
+  app.emit('transcription-final', { session: 1, id: '1:2', text: 'новая фраза' });
+  assert.equal(preview.scrollTop, 40);
+  preview.scrollTop = 242; preview.handlers.get('scroll')(); preview.scrollHeight = 340;
+  app.emit('transcription-final', { session: 1, id: '1:3', text: 'ещё фраза' });
+  assert.equal(preview.scrollTop, 340);
+  preview.scrollTop = 20; preview.handlers.get('scroll')();
+  await app.click('new-record'); assert.equal(preview.scrollTop, 340);
 });
 
 test('audio level events increase wave height with loudness without delivering text', async () => {

@@ -10,6 +10,7 @@
   <script src="./records.js" defer></script>
   <script src="./updates.js" defer></script>
   <script src="./audio.js" defer></script>
+  <script src="./models.js" defer></script>
   <script src="./app.js" defer></script>
 </head>
 <body>
@@ -66,7 +67,7 @@
             <button id="new-record" class="record-side" type="button" aria-label="Новая запись" title="Новая запись без остановки микрофона"><svg class="icon" aria-hidden="true"><use href="#icon-new"/></svg></button>
           </div>
           <div class="statusline"><span id="status-dot" class="dot" aria-hidden="true"></span><span id="status-label" role="status" tabindex="0" aria-label="Состояние записи">Ожидание</span><span id="input-warning" class="input-warning" role="status" aria-live="polite" aria-atomic="true" hidden></span></div>
-          <p id="compact-preview" class="compact-preview" aria-live="polite">Поставьте курсор в нужное поле и начните говорить.</p>
+          <div id="compact-preview" class="compact-preview" role="region" tabindex="0" aria-label="Текст текущей записи" aria-live="polite">Поставьте курсор в нужное поле и начните говорить.</div>
         </div>
 
         <div class="editor-toggle-row"><button id="toggle-editor" class="mini quiet editor-toggle" type="button" aria-expanded="false" aria-controls="transcript-editor">Открыть редактор</button></div>
@@ -82,13 +83,18 @@
       </section>
 
       <section id="panel-model" class="tab-panel settings-panel scroll-area" role="tabpanel" aria-labelledby="tab-model" tabindex="0" hidden>
-        <div class="panel-heading"><h1>Локальная модель</h1><p>Распознавание на вашем компьютере</p></div>
-        <div class="field-heading"><label for="model">Модель Vosk</label><button id="refresh-models" class="text-button" type="button"><svg class="icon" aria-hidden="true"><use href="#icon-refresh"/></svg>Обновить</button></div>
+        <div class="panel-heading"><h1>Модели</h1><p>Распознавание на вашем компьютере</p></div>
+        <div class="field-heading"><label for="model">Основная модель</label><button id="refresh-models" class="text-button" type="button"><svg class="icon" aria-hidden="true"><use href="#icon-refresh"/></svg>Обновить список</button></div>
         <div class="select-wrap"><select id="model" name="model"><option value="">Поиск моделей…</option></select><svg class="icon" aria-hidden="true"><use href="#icon-chevron"/></svg></div>
-        <label class="field-label" for="custom-path">Другая папка модели</label>
+        <p id="model-lock" class="field-help lock-note" hidden>Остановите диктовку, чтобы выбрать или удалить модель.</p>
+        <div id="model-catalog-items" class="model-catalog" aria-label="Каталог локальных моделей"></div>
+        <p id="catalog-feedback" class="field-help" role="status"></p>
+        <p class="field-help catalog-help">Загрузка начинается только по кнопке. Пауза и закрытие приложения сохраняют скачанную часть, отмена удаляет незавершённую загрузку.</p>
+        <details class="custom-model"><summary>Своя модель Vosk</summary>
+        <label class="field-label" for="custom-path">Папка модели</label>
         <div class="path-entry"><input id="custom-path" name="model-path" placeholder="C:\Models\vosk-model-small-ru-0.22" spellcheck="false" aria-describedby="model-help"/><button id="apply-path" class="secondary-button" type="button">Выбрать</button></div>
         <p id="model-help" class="field-help">Укажите папку с каталогами am/ и conf/.</p>
-        <p id="model-lock" class="field-help lock-note" hidden>Остановите диктовку, чтобы выбрать другую модель.</p>
+        </details>
         <div class="model-note"><svg class="icon" aria-hidden="true"><use href="#icon-folder"/></svg><div><strong>Всё остаётся локально</strong><p>Модель работает на CPU. Интернет и API-ключи для диктовки не нужны.</p></div></div>
       </section>
 
@@ -155,7 +161,7 @@
       </section>
     </main>
 
-    <footer class="app-footer"><button id="microphone-settings" type="button" aria-label="Настроить микрофон"><svg class="icon" aria-hidden="true"><use href="#icon-mic"/></svg><span id="footer-status">Микрофон по умолчанию</span></button><span class="local-mode">Vosk · CPU · RU</span></footer>
+    <footer class="app-footer"><button id="microphone-settings" type="button" aria-label="Настроить микрофон"><svg class="icon" aria-hidden="true"><use href="#icon-mic"/></svg><span id="footer-status">Микрофон по умолчанию</span></button><span id="engine-status" class="local-mode">Vosk · CPU · RU</span></footer>
   </div>
 </body>
 </html>

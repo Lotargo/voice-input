@@ -130,6 +130,18 @@ fn native_vosk_and_vad_keep_pauses_together_and_split_only_after_speech_resumes(
             assert_eq!(snapshot.history[0].text, first);
         } else {
             assert!(snapshot.current.text.len() > first.len());
+            assert!(snapshot.current.fragments.len() >= 2);
+            assert_eq!(
+                snapshot.current.text,
+                snapshot
+                    .current
+                    .fragments
+                    .iter()
+                    .map(|part| part.text.as_str())
+                    .collect::<Vec<_>>()
+                    .join("\n"),
+                "phrases recognized across a pause must occupy separate lines in the same record"
+            );
         }
     }
 }

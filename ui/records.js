@@ -1,6 +1,6 @@
 /* In-memory record views. Keep local edits while native transitions are in flight. */
 (() => {
-  const join = (left, right) => left ? left + (/\s$/.test(left) ? '' : ' ') + right.trim() : right.trim();
+  const join = (left, right) => left ? left + (left.endsWith('\n') ? '' : '\n') + right.trim() : right.trim();
   class DictationRecords {
     constructor() { this.entries = new Map(); this.currentId = 1; this.version = 0; this.seen = new Set(); this.ensure(1, 0); }
     ensure(id, generation) {

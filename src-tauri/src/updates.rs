@@ -191,6 +191,9 @@ pub async fn install_update(
         if recording.recording {
             return Err("Перед обновлением завершите диктовку".into());
         }
+        if runtime.models.busy() {
+            return Err("Перед обновлением приостановите загрузку модели".into());
+        }
         recording.updating = true;
     }
     let mut recording_gate = RecordingGate(runtime.inner().clone(), false);

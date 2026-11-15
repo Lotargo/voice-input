@@ -51,8 +51,8 @@ pub fn append_text(target: &mut String, text: &str) {
     if text.is_empty() {
         return;
     }
-    if !target.is_empty() && !target.ends_with(char::is_whitespace) {
-        target.push(' ');
+    if !target.is_empty() && !target.ends_with('\n') {
+        target.push('\n');
     }
     target.push_str(text);
 }

@@ -38,10 +38,14 @@
     ],
     "resources": [
       "resources/*.dll",
-      "resources/models/**/*"
+      "resources/Local-ASR-NOTICE.txt",
+      "resources/models/CPU-Execution.conf",
+      "resources/models/vosk-model-small-ru-0.22/**/*",
+      "resources/models/Speech-Denoiser-NOTICE.txt"
     ],
     "windows": {
       "nsis": {
+        "installerHooks": "installer-hooks.nsh",
         "displayLanguageSelector": false,
         "installerIcon": "icons/icon.ico",
         "uninstallerIcon": "icons/icon.ico"

@@ -19,6 +19,8 @@ const tabNames = ['dictation', 'model', 'settings', 'queue'];
 let selectedTab = 'dictation';
 let editorOpen = false;
 let latestFinal = '';
+let compactFollowing = true;
+let compactRecord;
 let hotkeyView = { shortcut: 'Ctrl+Alt+Space', default_shortcut: 'Ctrl+Alt+Space', active: false };
 let hotkeySaving = false;
 let hotkeyCapturing = false;
@@ -29,9 +31,12 @@ const wave = new window.VoiceWave($('voice-waves'), $('wave-front'), $('wave-bac
 const updates = new window.VoiceUpdates($, (name, args) => call(name, args), listen,
   () => captureControls());
 const audioInput = new window.VoiceAudio($, (name, args) => call(name, args), () => { captureControls(); updateFooter(); });
+const modelCatalog = new window.VoiceModels($, (name, args) => call(name, args), listen,
+  () => loadModels().catch(error => modelCatalog.feedback(String(error), true)), path => selectModel(path));
 let settingsPage = 'audio';
 
 function captureControls() {
+  modelCatalog?.setLocked(recording || testingInput || audioInput.testing, Boolean(updates.busy && updates.installing));
   $('record').disabled = testingInput || audioInput.testing || (audioInput.busy && !recording) || Boolean(updates.busy && updates.installing) || (recordTransitionBusy && !recording);
 }
 
@@ -78,14 +83,26 @@ function editorVisibility(open, focus = false) {
   $('panel-dictation').classList.toggle('editor-open', open);
   $('toggle-editor').setAttribute('aria-expanded', String(open));
   $('toggle-editor').textContent = open ? 'Скрыть редактор' : 'Открыть редактор';
+  if (!open && compactFollowing) $('compact-preview').scrollTop = $('compact-preview').scrollHeight;
   if (focus) (open ? transcript : $('toggle-editor')).focus();
 }
 $('toggle-editor').addEventListener('click', () => editorVisibility(!editorOpen, true));
 editorVisibility(false);
 
-function compactPreview(text) {
-  $('compact-preview').textContent = text || 'Поставьте курсор в нужное поле и начните говорить.';
+function compactPreview(text, record = compactRecord) {
+  const preview = $('compact-preview');
+  const recordChanged = record !== compactRecord;
+  if (recordChanged || !text) compactFollowing = true;
+  compactRecord = record;
+  const shown = text || 'Поставьте курсор в нужное поле и начните говорить.';
+  if (preview.textContent === shown && !recordChanged && text) return;
+  preview.textContent = shown;
+  if (compactFollowing) preview.scrollTop = preview.scrollHeight;
 }
+$('compact-preview').addEventListener('scroll', () => {
+  const preview = $('compact-preview');
+  compactFollowing = preview.scrollHeight - preview.clientHeight - preview.scrollTop <= 8;
+});
 
 function selectTab(name, focus = false) {
   if (!tabNames.includes(name)) return;
@@ -102,6 +119,7 @@ function selectTab(name, focus = false) {
   }
   if (focus) $(`tab-${name}`).focus();
   audioInput.setVisible(name === 'settings' && settingsPage === 'audio' && !document.hidden);
+  modelCatalog.setVisible(name === 'model' && !document.hidden);
   waveVisibility();
 }
 
@@ -248,7 +266,7 @@ document.addEventListener?.('keydown', (event) => {
   stopHotkeyCapture(parts.join('+'));
 });
 window.addEventListener?.('blur', () => { stopHotkeyCapture(); audioInput.stopTest(); });
-document.addEventListener?.('visibilitychange', () => { if (document.hidden) stopHotkeyCapture(); audioInput.setVisible(!document.hidden && selectedTab === 'settings' && settingsPage === 'audio'); });
+document.addEventListener?.('visibilitychange', () => { if (document.hidden) stopHotkeyCapture(); audioInput.setVisible(!document.hidden && selectedTab === 'settings' && settingsPage === 'audio'); modelCatalog.setVisible(!document.hidden && selectedTab === 'model'); });
 
 async function applyHotkey(shortcut) {
   if (hotkeySaving || hotkeyCapturing || hotkeyCaptureStarting) return;
@@ -282,33 +300,42 @@ $('hotkey-input').addEventListener('keydown', (event) => {
 });
 
 async function loadModels() {
+  let catalog = await modelCatalog.load();
+  const legacy = localStorage.getItem('local-model');
+  if (catalog?.entries && !catalog.selection_saved && legacy) {
+    catalog = await call('migrate_model_selection', { path: legacy }); modelCatalog.render(catalog);
+  }
   const available = await call('available_models');
   model.replaceChildren();
   if (!available.length) {
-    model.add(new Option('Модели не найдены. Запустите prepare-assets.ps1', ''));
+    model.add(new Option('Нет установленных моделей - загрузите из каталога', ''));
     return;
   }
   for (const entry of available) model.add(new Option(entry.name, entry.path));
-  const wanted = localStorage.getItem('local-model');
+  const wanted = catalog?.selected?.path || localStorage.getItem('local-model');
   if (wanted && available.some(x => x.path === wanted)) model.value = wanted;
-  await selectModel(model.value);
+  if (catalog?.entries && wanted && !available.some(x => x.path === wanted)) {
+    model.add(new Option('Основная модель недоступна - выберите другую', wanted)); model.value = wanted;
+  }
+  if (!catalog?.entries) await selectModel(model.value);
 }
 
 async function selectModel(path) {
   if (!path) return;
   await call('select_model', { path });
   localStorage.setItem('local-model', path);
+  if (modelCatalog.ready) await loadModels();
 }
 
 function transcriptControls() {
   transcript.readOnly = recording || transcriptBusy || recordTransitionBusy;
   $('copy-transcript').disabled = recording || transcriptBusy || recordTransitionBusy || !transcript.value.trim();
-  $('clear-transcript').disabled = recording || transcriptBusy || recordTransitionBusy || (!transcript.value && !transcriptIds.size);
+  $('clear-transcript').disabled = testingInput || transcriptBusy || recordTransitionBusy || (!recording && !transcript.value && !recordBook.current.partial && !transcriptIds.size);
   $('restart-record').disabled = testingInput || transcriptBusy || recordTransitionBusy || (!recording && !transcript.value && !recordBook.current.partial);
   $('new-record').disabled = testingInput || transcriptBusy || recordTransitionBusy;
   captureControls();
   $('transcript-help').textContent = recording ?
-    'Идёт диктовка. Остановите запись, чтобы поправить или скопировать текст.' :
+    'Идёт диктовка. Очистка доступна; для правки или копирования остановите запись.' :
     'Правка относится к текущей записи. Вставленный во внешнее поле текст измените вручную.';
 }
 
@@ -377,7 +404,7 @@ function showCurrentRecord() {
   $('record-number').textContent = `Запись ${current.id}`;
   $('partial').textContent = current.partial;
   latestFinal = current.text;
-  compactPreview([current.text, current.partial].filter(Boolean).join(' '));
+  compactPreview([current.text, current.partial].filter(Boolean).join('\n'), `${current.id}:${current.generation}`);
   transcriptControls();
 }
 
@@ -530,10 +557,7 @@ $('copy-transcript').addEventListener('click', async () => {
   }
 });
 
-$('clear-transcript').addEventListener('click', async () => {
-  if (recording) return;
-  await changeRecord(true);
-});
+$('clear-transcript').addEventListener('click', () => changeRecord(true));
 
 $('record').addEventListener('click', async () => {
   try {
@@ -547,7 +571,7 @@ $('record').addEventListener('click', async () => {
   } catch (err) { status(String(err), false, true); }
 });
 $('refresh-models').addEventListener('click', () => loadModels().catch(e => status(String(e), recording, true)));
-model.addEventListener('change', () => selectModel(model.value).catch(e => status(String(e), recording, true)));
+model.addEventListener('change', () => selectModel(model.value).catch(async e => { await loadModels(); status(String(e), recording, true); }));
 $('apply-path').addEventListener('click', async () => {
   try {
     const path = $('custom-path').value.trim();
@@ -595,6 +619,7 @@ $('hover-insert').addEventListener('change', async (ev) => {
 });
 
 async function init() {
+  await modelCatalog.init();
   if (!runtime) { status('Откройте Voice Input как Windows-приложение', false, true); return; }
   await updates.init();
   await audioInput.refresh();

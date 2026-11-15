@@ -59,13 +59,53 @@ pub fn looks_like_model(path: &Path) -> bool {
     path.is_dir() && path.join("am").is_dir() && path.join("conf").is_dir()
 }
 
-pub fn dll_path(app: &AppHandle) -> Result<PathBuf, String> {
-    for root in candidate_roots(app) {
-        for path in [root.join("resources/libvosk.dll"), root.join("libvosk.dll")] {
+pub fn runtime_path(app: &AppHandle, engine: &str) -> Result<PathBuf, String> {
+    runtime_from_roots(&candidate_roots(app), engine)
+}
+
+pub(crate) fn runtime_from_roots(roots: &[PathBuf], engine: &str) -> Result<PathBuf, String> {
+    let file = match engine {
+        "vosk" => "libvosk.dll",
+        "gigaam" | "nemotron" => "models/CPU-Execution.conf",
+        _ => return Err("Неизвестный движок распознавания".into()),
+    };
+    for root in roots {
+        for path in [root.join("resources").join(file), root.join(file)] {
             if path.is_file() {
                 return Ok(path);
             }
         }
     }
-    Err("Не найден libvosk.dll. Запустите scripts/prepare-assets.ps1".into())
+    Err(format!(
+        "Не найден файл runtime {file}. Восстановите файлы приложения."
+    ))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn native_profile_is_found_in_installed_and_portable_layouts_without_vosk_dll() {
+        let root = std::env::temp_dir().join(format!("voice-runtime-paths-{}", std::process::id()));
+        assert!(!root.exists());
+        for layout in ["installed/resources", "portable"] {
+            let base = root.join(layout);
+            std::fs::create_dir_all(base.join("models")).unwrap();
+            std::fs::write(
+                base.join("models/CPU-Execution.conf"),
+                include_bytes!("../resources/models/CPU-Execution.conf"),
+            )
+            .unwrap();
+        }
+        for layout in ["installed", "portable"] {
+            let roots = [root.join(layout)];
+            for engine in ["gigaam", "nemotron"] {
+                let profile = runtime_from_roots(&roots, engine).unwrap();
+                assert!(profile.is_file());
+                assert!(profile.ends_with("CPU-Execution.conf"));
+            }
+            assert!(runtime_from_roots(&roots, "vosk").is_err());
+        }
+        std::fs::remove_dir_all(root).unwrap();
+    }
 }

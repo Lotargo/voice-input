@@ -116,11 +116,12 @@ impl Delivery {
             if !state.seen.insert(id.clone()) {
                 return false;
             }
-            // Insert a separator between STT endpoint chunks within the same session.
+            // A completed phrase after a pause starts a new line, including when
+            // the microphone resumes the same logical record in a later session.
             let prefix = if state.last_session == Some(session)
                 || state.last_record == Some((record_id, generation))
             {
-                " "
+                "\n"
             } else {
                 ""
             };
@@ -381,15 +382,12 @@ fn mouse_position() -> Result<Point, String> {
     Ok(Point::new(point.x, point.y))
 }
 
-fn send_unicode(text: &str) -> Result<(), String> {
-    let units: Vec<u16> = text.encode_utf16().collect();
-    if units.is_empty() {
-        return Ok(());
-    }
+fn unicode_inputs(text: &str) -> Vec<INPUT> {
     // Windows receives paired keydown/keyup Unicode VK_PACKET events. No Ctrl+V,
     // clipboard replacement, Enter, mouse click, or submission is performed.
-    let mut inputs = Vec::with_capacity(units.len() * 2);
-    for unit in units {
+    // Line feeds stay Unicode text; do not turn them into VK_RETURN or CR.
+    let mut inputs = Vec::with_capacity(text.len() * 2);
+    for unit in text.encode_utf16() {
         for released in [false, true] {
             inputs.push(INPUT {
                 r#type: INPUT_KEYBOARD,
@@ -408,6 +406,14 @@ fn send_unicode(text: &str) -> Result<(), String> {
                 },
             });
         }
+    }
+    inputs
+}
+
+fn send_unicode(text: &str) -> Result<(), String> {
+    let inputs = unicode_inputs(text);
+    if inputs.is_empty() {
+        return Ok(());
     }
     let sent = unsafe { SendInput(&inputs, std::mem::size_of::<INPUT>() as i32) };
     if sent as usize == inputs.len() {
@@ -440,7 +446,7 @@ mod tests {
         assert!(d.enqueue_pending(1, 2, "да".into()));
         assert!(d.enqueue_pending(2, 1, "да".into()));
         let text: Vec<_> = d.snapshot().pending.into_iter().map(|p| p.text).collect();
-        assert_eq!(text, ["да", " да", "да"]);
+        assert_eq!(text, ["да", "\nда", "да"]);
         assert!(!d.enqueue_pending(1, 1, "да".into()));
     }
 
@@ -455,6 +461,27 @@ mod tests {
         assert!(d.pop_attempt().is_none());
         assert_eq!(d.snapshot().uncertain.len(), 1);
         assert_eq!(d.snapshot().inserted_segments, 0);
+    }
+
+    #[test]
+    fn resumed_record_queues_the_same_line_breaks_after_an_attempt_and_a_new_session() {
+        let d = Delivery::new();
+        assert!(d.enqueue_record_pending(1, 1, 7, 0, "я тут подумал".into()));
+        let first = d.pop_attempt().unwrap();
+        assert_eq!(first.text, "я тут подумал");
+        d.record_attempt(first, Ok(()));
+        assert!(d.enqueue_record_pending(1, 2, 7, 0, "надо бы сходить прогуляться".into()));
+        assert!(d.enqueue_record_pending(2, 1, 7, 0, "после включения микрофона".into()));
+        let text: String = d
+            .snapshot()
+            .pending
+            .into_iter()
+            .map(|part| part.text)
+            .collect();
+        assert_eq!(
+            text,
+            "\nнадо бы сходить прогуляться\nпосле включения микрофона"
+        );
     }
 
     #[test]

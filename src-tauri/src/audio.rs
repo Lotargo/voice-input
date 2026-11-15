@@ -1,5 +1,6 @@
-use crate::vosk::Vosk;
-mod pipeline;
+use crate::{catalog::Selection, recognizers};
+mod decoder;
+pub(crate) mod pipeline;
 mod processing;
 pub mod settings;
 mod silence;
@@ -123,8 +124,8 @@ fn feed<R: pipeline::Recognizer>(
 
 #[allow(clippy::too_many_arguments)]
 pub fn record_session<F>(
-    model_dir: &Path,
-    vosk_dll: &Path,
+    model: &Selection,
+    runtime_file: &Path,
     stop: Arc<AtomicBool>,
     input: InputPipe,
     settings: Arc<SplitSettings>,
@@ -153,7 +154,10 @@ where
     let pipeline = if testing {
         None
     } else {
-        Some(Pipeline::new(Vosk::open(vosk_dll, model_dir)?))
+        Some(Pipeline::new(decoder::Decoder::new(recognizers::open(
+            model,
+            runtime_file,
+        )?)?))
     };
     if stop.load(Ordering::Acquire) {
         return Ok(());

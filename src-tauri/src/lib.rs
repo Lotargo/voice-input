@@ -3,14 +3,26 @@
 compile_error!("Initial MVP supports Windows 10/11 only");
 
 mod audio;
+mod catalog;
 mod delivery;
 mod hotkey;
+#[cfg(feature = "model-tools")]
+pub mod model_tools;
 mod models;
+mod native_runtime;
+mod recognizers;
 mod records;
 mod updates;
 mod vosk;
 
 pub use updates::run_helper_if_requested;
+
+/// Call once from main, before creating any threads or initializing native ASR.
+/// Disable telemetry before native initialization, including newer ORT backends.
+/// native_runtime also disables events through the C API before ASR model loading.
+pub fn configure_native_runtime() {
+    std::env::set_var("ORT_DISABLE_TELEMETRY", "1");
+}
 
 use serde::Serialize;
 use std::{
@@ -37,11 +49,11 @@ struct RecordingState {
     input_name: Option<String>,
     session: u64,
     stop: Option<Arc<AtomicBool>>,
-    model: Option<PathBuf>,
     control: Option<audio::CaptureControl>,
 }
 
 struct AppRuntime {
+    models: Arc<catalog::Catalog>,
     recorder: Mutex<RecordingState>,
     delivery: Arc<Delivery>,
     records: Mutex<records::Records>,
@@ -50,8 +62,9 @@ struct AppRuntime {
 }
 
 impl AppRuntime {
-    fn new(audio_path: Result<PathBuf, String>) -> Self {
+    fn new(audio_path: Result<PathBuf, String>, models: Arc<catalog::Catalog>) -> Self {
         Self {
+            models,
             recorder: Mutex::new(RecordingState {
                 recording: false,
                 updating: false,
@@ -59,7 +72,6 @@ impl AppRuntime {
                 input_name: None,
                 session: 0,
                 stop: None,
-                model: None,
                 control: None,
             }),
             delivery: Arc::new(Delivery::new()),
@@ -70,7 +82,7 @@ impl AppRuntime {
     }
 
     fn begin(self: &Arc<Self>, app: AppHandle, testing: bool) -> Result<(), String> {
-        let (session, stop, model, dll, input, options) = {
+        let (session, stop, model, runtime_file, input, options) = {
             let mut recorder = self.recorder.lock().unwrap();
             if recorder.updating {
                 return Err("Дождитесь завершения обновления".into());
@@ -79,29 +91,22 @@ impl AppRuntime {
                 return Err("Запись уже запущена".into());
             }
             let selected = if testing {
-                PathBuf::new()
+                catalog::Selection {
+                    path: PathBuf::new(),
+                    engine: "test".into(),
+                    name: String::new(),
+                }
             } else {
-                recorder
-                    .model
-                    .clone()
-                    .or_else(|| {
-                        models::models(&app)
-                            .first()
-                            .map(|model| PathBuf::from(&model.path))
-                    })
-                    .ok_or("Сначала установите локальную модель Vosk")?
+                self.models.selection()?
             };
-            if !testing && !models::looks_like_model(&selected) {
-                return Err("Папка выбранной модели не содержит am/ и conf/".into());
-            }
-            let dll = if testing {
-                PathBuf::new()
+            let runtime_file = if !testing {
+                models::runtime_path(&app, &selected.engine)?
             } else {
-                models::dll_path(&app)?
+                PathBuf::new()
             };
             // Validate runtime dependencies BEFORE setting the session to 'recording'.
-            if !testing && !dll.is_file() {
-                return Err("libvosk.dll не найден".into());
+            if !testing && !runtime_file.is_file() {
+                return Err("Не найден файл runtime распознавания".into());
             }
             let options = self.audio.lock().unwrap().capture_options()?;
             recorder.recording = true;
@@ -112,7 +117,14 @@ impl AppRuntime {
             recorder.stop = Some(stop.clone());
             let (control, input) = audio::input_channel();
             recorder.control = Some(control);
-            (recorder.session, stop, selected, dll, input, options)
+            (
+                recorder.session,
+                stop,
+                selected,
+                runtime_file,
+                input,
+                options,
+            )
         };
         let runtime = self.clone();
         std::thread::spawn(move || {
@@ -134,7 +146,7 @@ impl AppRuntime {
             let mut segment: u32 = 0;
             let result = audio::record_session(
                 &model,
-                &dll,
+                &runtime_file,
                 stop,
                 input,
                 runtime.split.clone(),
@@ -343,22 +355,32 @@ struct AudioLevelsView {
 }
 
 #[tauri::command]
-fn available_models(app: AppHandle) -> Vec<LocalModel> {
-    models::models(&app)
+fn available_models(app: AppHandle, state: State<'_, Arc<AppRuntime>>) -> Vec<LocalModel> {
+    let mut local = models::models(&app);
+    for entry in state
+        .models
+        .view()
+        .entries
+        .into_iter()
+        .filter(|e| e.installed)
+    {
+        if !local.iter().any(|m| m.path == entry.path) {
+            local.push(LocalModel {
+                name: entry.name,
+                path: entry.path,
+            });
+        }
+    }
+    local
 }
 
 #[tauri::command]
 fn select_model(state: State<'_, Arc<AppRuntime>>, path: String) -> Result<(), String> {
-    let selected = PathBuf::from(path);
-    if !models::looks_like_model(&selected) {
-        return Err("Папка модели должна содержать am/ и conf/".into());
+    let recorder = state.recorder.lock().unwrap();
+    if recorder.recording || recorder.updating {
+        return Err("Нельзя переключать модель во время записи или установки обновления".into());
     }
-    let mut state = state.recorder.lock().unwrap();
-    if state.recording {
-        return Err("Нельзя переключать модель во время записи".into());
-    }
-    state.model = Some(selected);
-    Ok(())
+    state.models.select(PathBuf::from(path))
 }
 
 #[tauri::command]
@@ -515,14 +537,33 @@ fn show_window(app: &AppHandle) {
 
 pub fn run() {
     tauri::Builder::default()
+        .plugin(tauri_plugin_single_instance::init(|app, _, _| {
+            show_window(app)
+        }))
         .plugin(tauri_plugin_updater::Builder::new().build())
         .manage(updates::Updates::default())
         .setup(|app| {
+            let builtin = models::models(app.handle())
+                .into_iter()
+                .filter(|m| m.name == "vosk-model-small-ru-0.22")
+                .take(1)
+                .map(|m| catalog::Selection {
+                    path: PathBuf::from(m.path),
+                    engine: "vosk".into(),
+                    name: "Vosk Small RU".into(),
+                })
+                .collect();
+            let model_catalog = Arc::new(catalog::Catalog::load(
+                app.path().app_local_data_dir()?.join("models"),
+                app.path().app_config_dir()?.join("models.json"),
+                builtin,
+            ));
             let runtime = Arc::new(AppRuntime::new(
                 app.path()
                     .app_config_dir()
                     .map(|p| p.join("audio.json"))
                     .map_err(|e| e.to_string()),
+                model_catalog,
             ));
             runtime.delivery.clone().spawn_monitor(app.handle().clone());
             app.manage(runtime);
@@ -610,6 +651,12 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             available_models,
             select_model,
+            catalog::commands::model_catalog,
+            catalog::commands::migrate_model_selection,
+            catalog::commands::download_model,
+            catalog::commands::pause_model_download,
+            catalog::commands::cancel_model_download,
+            catalog::commands::delete_model,
             set_record_options,
             record_snapshot,
             edit_record,

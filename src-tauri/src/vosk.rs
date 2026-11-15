@@ -38,6 +38,10 @@ pub struct Vosk {
     reset: Reset,
 }
 
+// SAFETY: one decoder worker exclusively owns this model/recognizer and its DLL.
+// Ownership may move between threads; the object is never shared concurrently.
+unsafe impl Send for Vosk {}
+
 impl Vosk {
     pub fn open(dll: &Path, model_path: &Path) -> Result<Self, String> {
         // Tauri resolves resources through Windows canonical paths (\\?\C:\...).

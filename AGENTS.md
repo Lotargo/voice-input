@@ -2,7 +2,7 @@
 
 ## Scope
 - Windows 10/11, Tauri 2 + Rust, static HTML/CSS/JS frontend; native portable + NSIS packages.
-- Local CPU-based Russian STT (Vosk) only. No cloud STT, VPN, LLM, database, or telemetry. The only runtime network feature is an explicitly requested update check/download from public GitHub Releases.
+- Local CPU-based Russian STT: bundled Vosk and optional GigaAM v3 E2E / Nemotron 3.5 ASR. No cloud STT, VPN, LLM, database, or telemetry. Runtime networking is limited to explicit update checks/downloads and user-started model downloads from the curated pinned catalog. Never poll model hubs at startup.
 - Dictation is user-controlled. NEVER automatically press Enter, send a message, or mutate an Excel workbook.
 - Partial STT hypotheses are **preview only**. Deliver final segments to the user's focused editable field.
 - If no field is eligible, keep final text in an in-memory pending queue. Optional 700 ms hover to focus and deliver.
@@ -18,7 +18,11 @@
 - `src-tauri/src/audio/visualizer.rs`: read-only RMS/AC peak and FFT-band analysis of the processed 16 kHz PCM. The processor supplies raw RMS, digital peak and near-rail sample ratio before filtering; no second capture stream or VAD. Signal overload is digital headroom, not acoustic SPL.
 - `src-tauri/src/vosk.rs`: native Vosk late binding, DLL loading and object lifetime.
 - `src-tauri/src/delivery.rs`: UI Automation validation, queue, Unicode SendInput, delivery status.
-- `src-tauri/src/models.rs`: local model / DLL discovery.
+- `src-tauri/src/models.rs`: local model and runtime-file discovery. Resolve the Vosk DLL for Vosk and CPU profile for native models independently in installed/portable layouts; a native recognizer must never receive an empty runtime path.
+- `src-tauri/src/catalog.rs`: pinned model metadata, native persistent primary selection, resumable per-file downloads and managed deletion. New model weights never enter installer/portable resources. Preserve partial files on pause, disconnect and app exit; resume via validated HTTP ranges. Download all files before an explicit cancellable verification phase with byte progress; verify every SHA-256 before atomic installation and model availability. Interrupted verification must reuse saved files without downloading them again. Cancel deletes only the unfinished managed download. Never delete a custom model directory or silently replace a missing primary model.
+- `src-tauri/src/recognizers.rs`: local CPU GigaAM/Nemotron adapters. Use the existing same-stream VAD for phrase buffering; keep partials preview-only.
+- `src-tauri/src/audio/decoder.rs`: bounded PCM/control FIFO for heavy native inference, preserving flush/reset order without stalling DSP and audio-level feedback.
+- `src-tauri/installer-hooks.nsh`: ask to retain downloaded models/settings on interactive uninstall; preserve data during upgrades and unattended uninstall.
 - `src-tauri/src/lib.rs`: app state, commands, hotkey, tray lifecycle.
 - `src-tauri/src/hotkey.rs`: persistent global shortcut; register the candidate before releasing the active shortcut. Conflicts/storage failures preserve the previous binding. Capture mode must not start dictation and must end when focus is lost.
 - `src-tauri/src/updates.rs`: user-initiated signed updates, separate portable/NSIS manifests, no startup polling or embedded GitHub token. Block installation while recording and new capture during updates. Signatures must bind the announced version.
@@ -41,4 +45,4 @@
 - Known limits: UIA is imperfect in custom editors; Windows injection lacks acceptance ACK; elevated apps can block input.
 
 ## Roadmap (not yet implemented)
-Wake word, auto-start and additional STT providers remain deferred. Do not add other audio features beyond device selection, loss handling, level check and optional noise suppression without a new request. API/LLM only if requested later.
+Wake word, auto-start and other STT providers remain deferred. Do not add other audio features beyond the approved catalog/device selection/loss handling/level check/optional noise suppression without a new request. API/LLM only if requested later.

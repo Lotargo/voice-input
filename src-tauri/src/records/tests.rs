@@ -14,7 +14,7 @@ fn endpoints_and_microphone_sessions_append_to_one_logical_record() {
     assert_eq!(snapshot.current.id, 1);
     assert_eq!(
         snapshot.current.text,
-        "первая фраза после паузы после включения микрофона"
+        "первая фраза\nпосле паузы\nпосле включения микрофона"
     );
     assert_eq!(snapshot.current.fragments.len(), 3);
     assert!(snapshot.history.is_empty());
@@ -45,7 +45,7 @@ fn manual_edits_preserve_new_final_segments_that_arrive_during_the_request() {
     let edited = records
         .edit(1, 0, "Исправленный текст.".into(), &["1:1".into()])
         .unwrap();
-    assert_eq!(edited.text, "Исправленный текст. продолжение");
+    assert_eq!(edited.text, "Исправленный текст.\nпродолжение");
     records.next();
     let history_edit = records
         .edit(1, 0, "Поздняя правка".into(), &["1:1".into(), "2:1".into()])
@@ -63,4 +63,20 @@ fn a_late_edit_cannot_restore_a_cleared_record() {
         .edit(1, 0, "запоздалая правка".into(), &["1:1".into()])
         .is_err());
     assert!(records.snapshot().current.text.is_empty());
+}
+
+#[test]
+fn resumed_dictation_preserves_manual_line_breaks_without_adding_empty_lines() {
+    let mut records = Records::new();
+    records.append("1:1".into(), "я тут подумал".into());
+    records
+        .edit(1, 0, "Я тут подумал\n".into(), &["1:1".into()])
+        .unwrap();
+    assert!(!records.append("1:2".into(), " \n ".into()));
+    assert!(records.append("1:3".into(), " надо бы сходить прогуляться ".into()));
+    assert!(!records.append("1:3".into(), "повтор".into()));
+    assert_eq!(
+        records.snapshot().current.text,
+        "Я тут подумал\nнадо бы сходить прогуляться"
+    );
 }

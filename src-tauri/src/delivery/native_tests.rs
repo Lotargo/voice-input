@@ -1,12 +1,15 @@
-use super::{has_writable_text, UIAutomation};
+use super::{
+    has_writable_text, unicode_inputs, Delivery, UIAutomation, KEYEVENTF_KEYUP, KEYEVENTF_UNICODE,
+};
 use std::{sync::mpsc, thread, time::Duration};
 use windows::{
     core::w,
     Win32::{
         Foundation::{HWND, LPARAM, WPARAM},
         UI::WindowsAndMessaging::{
-            CreateWindowExW, DestroyWindow, DispatchMessageW, GetMessageW, PostMessageW,
-            ES_READONLY, MSG, WINDOW_STYLE, WM_APP, WS_CHILD, WS_POPUP,
+            CreateWindowExW, DestroyWindow, DispatchMessageW, GetMessageW, GetWindowTextW,
+            PostMessageW, SendMessageW, SetWindowTextW, ES_MULTILINE, ES_READONLY, MSG,
+            WINDOW_STYLE, WM_APP, WM_CHAR, WS_CHILD, WS_POPUP,
         },
     },
 };
@@ -15,6 +18,7 @@ struct NativeEdits {
     parent: isize,
     writable: isize,
     readonly: isize,
+    multiline: isize,
     thread: Option<thread::JoinHandle<()>>,
 }
 
@@ -58,8 +62,15 @@ impl NativeEdits {
                 };
                 let writable = create_edit(0);
                 let readonly = create_edit(ES_READONLY as u32);
-                tx.send((parent.0 as isize, writable.0 as isize, readonly.0 as isize))
-                    .unwrap();
+                let multiline = create_edit(ES_MULTILINE as u32);
+                SetWindowTextW(multiline, w!("")).unwrap();
+                tx.send((
+                    parent.0 as isize,
+                    writable.0 as isize,
+                    readonly.0 as isize,
+                    multiline.0 as isize,
+                ))
+                .unwrap();
                 let mut message = MSG::default();
                 while GetMessageW(&mut message, None, 0, 0).0 > 0 {
                     if message.message == WM_APP {
@@ -70,11 +81,13 @@ impl NativeEdits {
                 DestroyWindow(parent).unwrap();
             }
         });
-        let (parent, writable, readonly) = rx.recv_timeout(Duration::from_secs(10)).unwrap();
+        let (parent, writable, readonly, multiline) =
+            rx.recv_timeout(Duration::from_secs(10)).unwrap();
         Self {
             parent,
             writable,
             readonly,
+            multiline,
             thread: Some(thread),
         }
     }
@@ -103,4 +116,46 @@ fn native_readonly_controls_are_not_writable_targets() {
     assert!(has_writable_text(&element(controls.writable)));
     assert!(!has_writable_text(&element(controls.readonly)));
     assert!(!has_writable_text(&element(controls.parent)));
+}
+
+#[test]
+fn queued_phrases_insert_native_lines_with_unicode_characters_and_no_enter_key() {
+    let controls = NativeEdits::new();
+    let delivery = Delivery::new();
+    delivery.enqueue_pending(1, 1, "Я тут подумал".into());
+    delivery.enqueue_pending(1, 2, "надо бы сходить прогуляться".into());
+    let text: String = delivery
+        .snapshot()
+        .pending
+        .into_iter()
+        .map(|part| part.text)
+        .collect();
+    assert_eq!(text, "Я тут подумал\nнадо бы сходить прогуляться");
+    for input in unicode_inputs(&text) {
+        let key = unsafe { input.Anonymous.ki };
+        assert_eq!(
+            key.wVk.0, 0,
+            "no virtual key, especially VK_RETURN, is sent"
+        );
+        assert!(key.dwFlags.contains(KEYEVENTF_UNICODE));
+        assert_ne!(key.wScan, 13, "line feeds must not become Enter characters");
+        if !key.dwFlags.contains(KEYEVENTF_KEYUP) {
+            // Replay the WM_CHAR produced by a Unicode packet into our hidden
+            // control. No real focus, SendInput or system clipboard is used.
+            unsafe {
+                SendMessageW(
+                    HWND(controls.multiline as _),
+                    WM_CHAR,
+                    Some(WPARAM(key.wScan as usize)),
+                    Some(LPARAM(0)),
+                );
+            }
+        }
+    }
+    let mut buffer = [0u16; 256];
+    let length = unsafe { GetWindowTextW(HWND(controls.multiline as _), &mut buffer) };
+    assert_eq!(
+        String::from_utf16(&buffer[..length as usize]).unwrap(),
+        text.replace('\n', "\r\n")
+    );
 }

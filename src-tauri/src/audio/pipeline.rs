@@ -5,12 +5,40 @@ use super::{
 use crate::vosk::Vosk;
 use earshot::Detector;
 
-pub(super) trait Recognizer {
+pub(crate) trait Recognizer {
+    fn speech(&mut self, _speech: bool) {}
     fn accept(&mut self, samples: &[i16]) -> Result<bool, String>;
     fn result(&mut self) -> String;
     fn partial(&mut self) -> String;
     fn finish(&mut self) -> String;
+    fn finish_checked(&mut self) -> Result<String, String> {
+        Ok(self.finish())
+    }
     fn reset(&mut self);
+}
+
+impl<T: Recognizer + ?Sized> Recognizer for Box<T> {
+    fn speech(&mut self, speech: bool) {
+        (**self).speech(speech);
+    }
+    fn accept(&mut self, samples: &[i16]) -> Result<bool, String> {
+        (**self).accept(samples)
+    }
+    fn result(&mut self) -> String {
+        (**self).result()
+    }
+    fn partial(&mut self) -> String {
+        (**self).partial()
+    }
+    fn finish(&mut self) -> String {
+        (**self).finish()
+    }
+    fn finish_checked(&mut self) -> Result<String, String> {
+        (**self).finish_checked()
+    }
+    fn reset(&mut self) {
+        (**self).reset();
+    }
 }
 
 impl Recognizer for Vosk {
@@ -31,7 +59,7 @@ impl Recognizer for Vosk {
     }
 }
 
-pub(super) struct Pipeline<R: Recognizer> {
+pub(crate) struct Pipeline<R: Recognizer> {
     recognizer: R,
     detector: Detector,
     clock: SilenceClock,
@@ -76,9 +104,10 @@ impl<R: Recognizer> Pipeline<R> {
             }
             self.filled = 0;
             let score = self.detector.predict_i16(&self.frame);
+            self.recognizer.speech(score >= 0.5);
             match self.clock.push(score >= 0.5, 256, settings.get()) {
                 Decision::Seal => {
-                    let text = self.recognizer.finish();
+                    let text = self.recognizer.finish_checked()?;
                     self.final_text(text, event);
                     self.recognizer.reset();
                 }
@@ -117,7 +146,7 @@ impl<R: Recognizer> Pipeline<R> {
             }
             self.filled = 0;
         }
-        let text = self.recognizer.finish();
+        let text = self.recognizer.finish_checked()?;
         self.final_text(text, event);
         Ok(())
     }
