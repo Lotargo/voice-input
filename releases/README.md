@@ -17,7 +17,7 @@
 
 ## Состав релиза
 
-- `Voice-Input-Portable-windows-x64.zip` и `.zip.sig` — папка `Voice-Input/`, EXE, четыре DLL, модель, `portable.json`.
+- `Voice-Input-Portable-windows-x64.zip` и `.zip.sig` — папка `Voice-Input/`, `voice-input.exe`, `voice-input-cli.exe`, четыре DLL, модель, `portable.json`.
 - `Voice-Input-Setup-windows-x64.exe` и `.exe.sig` — NSIS.
 - `latest.json` — версия, описание, дата UTC, платформа `windows-x86_64`, HTTPS-ссылка и подпись NSIS.
 - `latest-portable.json` — то же для ZIP. Форматы намеренно разделены: portable остаётся portable.

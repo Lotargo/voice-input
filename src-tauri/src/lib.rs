@@ -4,6 +4,7 @@ compile_error!("Initial MVP supports Windows 10/11 only");
 
 mod audio;
 mod catalog;
+pub mod cli;
 mod delivery;
 mod hotkey;
 #[cfg(feature = "model-tools")]
@@ -51,9 +52,13 @@ struct RecordingState {
     session: u64,
     stop: Option<Arc<AtomicBool>>,
     control: Option<audio::CaptureControl>,
+    last_error: Option<String>,
 }
 
 struct AppRuntime {
+    closing: AtomicBool,
+    lifecycle: Mutex<()>,
+    worker: Mutex<Option<std::thread::JoinHandle<()>>>,
     models: Arc<catalog::Catalog>,
     recorder: Mutex<RecordingState>,
     delivery: Arc<Delivery>,
@@ -65,6 +70,9 @@ struct AppRuntime {
 impl AppRuntime {
     fn new(audio_path: Result<PathBuf, String>, models: Arc<catalog::Catalog>) -> Self {
         Self {
+            closing: AtomicBool::new(false),
+            lifecycle: Mutex::new(()),
+            worker: Mutex::new(None),
             models,
             recorder: Mutex::new(RecordingState {
                 recording: false,
@@ -74,6 +82,7 @@ impl AppRuntime {
                 session: 0,
                 stop: None,
                 control: None,
+                last_error: None,
             }),
             delivery: Arc::new(Delivery::new()),
             records: Mutex::new(records::Records::new()),
@@ -83,6 +92,10 @@ impl AppRuntime {
     }
 
     fn begin(self: &Arc<Self>, app: AppHandle, testing: bool) -> Result<(), String> {
+        let _lifecycle = self.lifecycle.lock().unwrap();
+        if self.closing.load(Ordering::Acquire) {
+            return Err("Приложение завершает работу".into());
+        }
         let (session, stop, model, runtime_file, input, options) = {
             let mut recorder = self.recorder.lock().unwrap();
             if recorder.updating {
@@ -113,6 +126,7 @@ impl AppRuntime {
             recorder.recording = true;
             recorder.testing = testing;
             recorder.input_name = None;
+            recorder.last_error = None;
             recorder.session += 1;
             let stop = Arc::new(AtomicBool::new(false));
             recorder.stop = Some(stop.clone());
@@ -128,7 +142,7 @@ impl AppRuntime {
             )
         };
         let runtime = self.clone();
-        std::thread::spawn(move || {
+        let worker = std::thread::spawn(move || {
             let _ = app.emit(
                 "recording-status",
                 RecordingView {
@@ -205,14 +219,16 @@ impl AppRuntime {
                             return;
                         }
                         let (record_id, generation, version) = records.identity();
-                        let _ = runtime.delivery.enqueue_record(
-                            &app,
-                            session,
-                            segment,
-                            record_id,
-                            generation,
-                            text.clone(),
-                        );
+                        if !runtime.closing.load(Ordering::Acquire) {
+                            let _ = runtime.delivery.enqueue_record(
+                                &app,
+                                session,
+                                segment,
+                                record_id,
+                                generation,
+                                text.clone(),
+                            );
+                        }
                         let _ = app.emit(
                             "transcription-final",
                             FinalTranscriptView {
@@ -237,7 +253,31 @@ impl AppRuntime {
             );
             runtime.end_session(&app, session, result.err());
         });
+        if let Some(previous) = self.worker.lock().unwrap().replace(worker) {
+            let _ = previous.join();
+        }
         Ok(())
+    }
+
+    // Serialize with begin; record_session drops the stream, pipeline, decoder and
+    // native model before the worker returns. Never join holding recorder's lock.
+    fn stop_and_wait(&self) -> Result<(), String> {
+        let _lifecycle = self.lifecycle.lock().unwrap();
+        self.stop();
+        if let Some(worker) = self.worker.lock().unwrap().take() {
+            worker
+                .join()
+                .map_err(|_| "Поток распознавания завершился с ошибкой".to_owned())?;
+        }
+        Ok(())
+    }
+
+    fn shutdown(&self) {
+        self.closing.store(true, Ordering::Release);
+        self.delivery.shutdown();
+        if let Err(error) = self.stop_and_wait() {
+            eprintln!("Shutdown: {error}");
+        }
     }
 
     fn end_session(&self, app: &AppHandle, session: u64, error: Option<String>) {
@@ -248,6 +288,7 @@ impl AppRuntime {
             testing = current.testing;
             input_name = current.input_name.clone();
             if current.session == session {
+                current.last_error = error.clone();
                 current.recording = false;
                 current.stop = None;
                 current.control = None;
@@ -307,7 +348,9 @@ impl AppRuntime {
             testing: state.testing,
             input_name: state.input_name.clone(),
             session: state.session,
-            message: if state.recording && state.testing {
+            message: if let Some(error) = &state.last_error {
+                error.as_str()
+            } else if state.recording && state.testing {
                 "Проверка микрофона"
             } else if state.recording {
                 "Запись идёт"
@@ -560,6 +603,7 @@ pub fn run() {
             ));
             runtime.delivery.clone().spawn_monitor(app.handle().clone());
             app.manage(runtime);
+            cli::serve(app.handle().clone())?;
 
             let hotkeys = Arc::new(hotkey::Hotkeys::load(Ok(storage
                 .config
@@ -669,6 +713,51 @@ pub fn run() {
             updates::check_updates,
             updates::install_update,
         ])
-        .run(tauri::generate_context!())
-        .expect("Не удалось запустить Voice Input");
+        .build(tauri::generate_context!())
+        .expect("Не удалось запустить Voice Input")
+        .run(|app, event| {
+            if matches!(
+                event,
+                tauri::RunEvent::ExitRequested { .. } | tauri::RunEvent::Exit
+            ) {
+                if let Some(runtime) = app.try_state::<Arc<AppRuntime>>() {
+                    runtime.shutdown();
+                }
+            }
+        });
+}
+
+#[cfg(test)]
+mod lifecycle_tests {
+    use super::*;
+    #[test]
+    fn stop_waits_for_worker_resources_and_shutdown_is_idempotent() {
+        let root =
+            std::env::temp_dir().join(format!("voice-input-lifecycle-{}", std::process::id()));
+        let runtime = Arc::new(AppRuntime::new(
+            Ok(root.join("audio.json")),
+            Arc::new(catalog::Catalog::load(
+                root.join("models"),
+                root.join("models.json"),
+                vec![],
+            )),
+        ));
+        let stop = Arc::new(AtomicBool::new(false));
+        runtime.recorder.lock().unwrap().stop = Some(stop.clone());
+        let released = Arc::new(AtomicBool::new(false));
+        let released_worker = released.clone();
+        *runtime.worker.lock().unwrap() = Some(std::thread::spawn(move || {
+            while !stop.load(Ordering::Acquire) {
+                std::thread::yield_now();
+            }
+            std::thread::sleep(std::time::Duration::from_millis(20));
+            released_worker.store(true, Ordering::Release);
+        }));
+        runtime.stop_and_wait().unwrap();
+        assert!(released.load(Ordering::Acquire));
+        assert!(runtime.worker.lock().unwrap().is_none());
+        runtime.shutdown();
+        runtime.shutdown();
+        assert!(runtime.closing.load(Ordering::Acquire));
+    }
 }

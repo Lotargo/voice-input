@@ -25,6 +25,7 @@
 - `src-tauri/src/audio/decoder.rs`: bounded PCM/control FIFO for heavy native inference, preserving flush/reset order without stalling DSP and audio-level feedback.
 - `src-tauri/installer-hooks.nsh`: ask to retain downloaded models/settings on interactive uninstall; preserve data during upgrades and unattended uninstall.
 - `src-tauri/src/lib.rs`: app state, commands, hotkey, tray lifecycle.
+- `src-tauri/src/cli.rs`, `src-tauri/src/bin/voice-input-cli.rs`: local Windows named-pipe control and JSON CLI for an already running app. Reuse native commands and guards; never automatically retry mutations. CLI stop and true app exit join the capture worker after model destruction. Closing the window still hides it to tray.
 - `src-tauri/src/hotkey.rs`: persistent global shortcut; register the candidate before releasing the active shortcut. Conflicts/storage failures preserve the previous binding. Capture mode must not start dictation and must end when focus is lost.
 - `src-tauri/src/updates.rs`: user-initiated signed updates, separate portable/NSIS manifests, no startup polling or embedded GitHub token. Block installation while recording and new capture during updates. Signatures must bind the announced version.
 - `src-tauri/src/updates/portable.rs`: validate signature/paths, stage before exiting, wait for the actual parent, back up and roll back replaced files, restart in the same folder. Preserve unrelated files. Never convert portable into an installation.

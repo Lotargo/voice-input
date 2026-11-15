@@ -222,3 +222,45 @@ mod tests {
         assert_eq!(decoder.finish_checked().unwrap(), "3");
     }
 }
+
+#[cfg(test)]
+mod lifetime_tests {
+    use super::*;
+    use std::sync::{
+        atomic::{AtomicUsize, Ordering},
+        Arc,
+    };
+    struct OwnedModel(Arc<AtomicUsize>);
+    impl Drop for OwnedModel {
+        fn drop(&mut self) {
+            self.0.fetch_add(1, Ordering::SeqCst);
+        }
+    }
+    impl Recognizer for OwnedModel {
+        fn accept(&mut self, _: &[i16]) -> Result<bool, String> {
+            Ok(false)
+        }
+        fn result(&mut self) -> String {
+            String::new()
+        }
+        fn partial(&mut self) -> String {
+            String::new()
+        }
+        fn finish(&mut self) -> String {
+            String::new()
+        }
+        fn reset(&mut self) {}
+    }
+    #[test]
+    fn dropping_decoder_joins_worker_and_destroys_owned_model_once() {
+        let released = Arc::new(AtomicUsize::new(0));
+        for expected in 1..=3 {
+            let mut decoder = Decoder::new(Box::new(OwnedModel(released.clone()))).unwrap();
+            for _ in 0..100 {
+                decoder.accept(&[0; 256]).unwrap();
+            }
+            drop(decoder);
+            assert_eq!(released.load(Ordering::SeqCst), expected);
+        }
+    }
+}

@@ -59,6 +59,7 @@ struct QueueState {
 pub struct Delivery {
     inner: Mutex<QueueState>,
     hover_enabled: AtomicBool,
+    stopped: AtomicBool,
 }
 
 impl Delivery {
@@ -74,7 +75,12 @@ impl Delivery {
                 last_record: None,
             }),
             hover_enabled: AtomicBool::new(true),
+            stopped: AtomicBool::new(false),
         }
+    }
+
+    pub fn shutdown(&self) {
+        self.stopped.store(true, Ordering::Release);
     }
 
     pub fn enqueue_record(
@@ -221,6 +227,9 @@ impl Delivery {
     }
 
     fn deliver_one(&self, app: &AppHandle, automation: &UIAutomation, target: &UIElement) {
+        if self.stopped.load(Ordering::Acquire) {
+            return;
+        }
         // Revalidate as close to the attempt as possible. If the field became
         // unavailable before dequeueing, its text still belongs in the queue.
         let Ok(focused) = automation.get_focused_element() else {
@@ -253,7 +262,7 @@ impl Delivery {
                 }
             };
             let mut hover: Option<(Vec<i32>, Instant)> = None;
-            loop {
+            while !self.stopped.load(Ordering::Acquire) {
                 thread::sleep(Duration::from_millis(180));
                 if !self.has_pending() {
                     hover = None;

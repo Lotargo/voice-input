@@ -243,3 +243,81 @@ mod tests {
         }
     }
 }
+
+#[cfg(test)]
+mod release_tests {
+    use super::*;
+    #[repr(C)]
+    struct Counters {
+        cb: u32,
+        faults: u32,
+        values: [usize; 9],
+    }
+    #[link(name = "kernel32")]
+    unsafe extern "system" {
+        fn K32GetProcessMemoryInfo(process: isize, counters: *mut Counters, size: u32) -> i32;
+    }
+    fn private_bytes() -> usize {
+        let mut counters = Counters {
+            cb: std::mem::size_of::<Counters>() as u32,
+            faults: 0,
+            values: [0; 9],
+        };
+        assert_ne!(
+            unsafe {
+                K32GetProcessMemoryInfo(-1, &mut counters, std::mem::size_of::<Counters>() as u32)
+            },
+            0
+        );
+        counters.values[8]
+    }
+    #[test]
+    #[ignore = "Explicit native memory QA; requires installed catalog models"]
+    fn native_models_release_memory_across_repeated_sessions() {
+        let resources = Path::new(env!("CARGO_MANIFEST_DIR")).join("resources");
+        let local = std::path::PathBuf::from(std::env::var_os("LOCALAPPDATA").unwrap())
+            .join("dev.lotargo.voiceinput/models");
+        for (id, engine, root, runtime) in [
+            (
+                "vosk-model-small-ru-0.22",
+                "vosk",
+                resources.join("models/vosk-model-small-ru-0.22"),
+                resources.join("libvosk.dll"),
+            ),
+            (
+                "gigaam-v3-e2e",
+                "gigaam",
+                local.join("gigaam-v3-e2e"),
+                resources.join("models/CPU-Execution.conf"),
+            ),
+            (
+                "nemotron-3-5-ru",
+                "nemotron",
+                local.join("nemotron-3-5-ru"),
+                resources.join("models/CPU-Execution.conf"),
+            ),
+        ] {
+            assert!(root.is_dir(), "Missing QA model {id}");
+            for cycle in 1..=3 {
+                let before = private_bytes();
+                let selection = Selection {
+                    path: root.clone(),
+                    engine: engine.into(),
+                    name: id.into(),
+                };
+                let mut model = open(&selection, &runtime).unwrap();
+                let loaded = private_bytes();
+                model.speech(true);
+                model.accept(&[0; 1600]).unwrap();
+                model.finish_checked().unwrap();
+                drop(model);
+                let released = private_bytes();
+                println!("{id} cycle={cycle} private_bytes before={before} loaded={loaded} released={released}");
+                assert!(
+                    released < loaded,
+                    "Model memory did not decrease on drop: {id}"
+                );
+            }
+        }
+    }
+}

@@ -214,6 +214,7 @@ fn package_path(name: &str) -> Result<PathBuf, String> {
         && !matches!(
             first.as_ref(),
             "voice-input.exe"
+                | "voice-input-cli.exe"
                 | "portable.json"
                 | "libvosk.dll"
                 | "libgcc_s_seh-1.dll"

@@ -52,6 +52,7 @@ try {
     Remove-BuildDirectory -LiteralPath $portable -Within $out
     New-Item -ItemType Directory -Path $portable -Force | Out-Null
     Copy-Item -LiteralPath $exe -Destination $portable
+    Copy-Item -LiteralPath (Join-Path $release 'voice-input-cli.exe') -Destination $portable
     foreach ($dll in @(Get-ChildItem -LiteralPath $resources -Filter '*.dll' -File)) { Copy-Item -LiteralPath $dll.FullName -Destination $portable }
     $portableModels = Join-Path $portable 'models'
     New-Item -ItemType Directory -Path $portableModels -Force | Out-Null
