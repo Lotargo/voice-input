@@ -4,6 +4,15 @@
 /src-tauri/gen/
 /node_modules/
 /dist/
+# Private research, plans and QA evidence stay on this computer
+/docs/research/
+/docs/plans/
+/docs/qa/
+/docs/reports/
+/docs/experiments/
+/docs/internal/
+# Local agent instructions (any directory and letter case)
+[Aa][Gg][Ee][Nn][Tt][Ss].[Mm][Dd]
 # Native runtime and local model weights are downloaded separately
 /src-tauri/resources/*.dll
 /src-tauri/resources/Voice-Input-LICENSE.txt
